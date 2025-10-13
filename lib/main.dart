@@ -16,7 +16,6 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await FirebaseAppCheck.instance.activate(
     androidProvider: AndroidProvider.debug,
-
   );
   runApp(const MadactionApp());
 }
@@ -34,9 +33,11 @@ class MadactionApp extends StatelessWidget {
         initialRoute: '/login',
         routes: {
           '/login': (context) => const LoginScreen(),
-          '/dashboard/admin': (context) => const DashboardAdminScreen(),
-          '/dashboard/coordinator': (context) => const DashboardCoordoScreen(),
-          '/dashboard/student': (context) => const DashboardStudentScreen(),
+          '/admin/dashboard_admin': (context) => const DashboardAdminScreen(),
+          '/coordinator/dashboard_coordo': (context) =>
+              const DashboardCoordoScreen(),
+          '/student/dashboard_student': (context) =>
+              const DashboardStudentScreen(),
         },
       ),
     );

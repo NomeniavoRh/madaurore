@@ -4,58 +4,69 @@ class UserModel {
   final String uid;
   final String email;
   final String fullName;
-  final String region;
   final String role;
-  final String? photoUrl;
+  final String region;
   final String status;
-  final DateTime? createdAt;
-  final DateTime? updatedAt;
+  final String? photoUrl;
+  final DateTime createdAt;
 
   UserModel({
     required this.uid,
     required this.email,
     required this.fullName,
-    required this.region,
     required this.role,
-    this.photoUrl,
+    required this.region,
     required this.status,
-    this.createdAt,
-    this.updatedAt,
+    required this.photoUrl,
+    required this.createdAt,
   });
-
-  factory UserModel.fromMap(Map<String, dynamic> map) {
-    return UserModel(
-      uid: map['uid'] as String? ?? '',
-      email: map['email'] as String? ?? '',
-      fullName: map['fullName'] as String? ?? '',
-      region: map['region'] as String? ?? '',
-      role: map['role'] as String? ?? '',
-      photoUrl: map['photoUrl'] as String?,
-      status: map['status'] as String? ?? 'pending',
-      createdAt: (map['createdAt'] as Timestamp?)?.toDate(),
-      updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
-    );
-  }
-
-  factory UserModel.fromDocument(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-    return UserModel.fromMap({'uid': doc.id, ...data});
-  }
 
   Map<String, dynamic> toMap() {
     return {
       'uid': uid,
+      'email': email,
       'fullName': fullName,
-      'region': region,
       'role': role,
-      'photoUrl': photoUrl,
+      'region': region,
       'status': status,
+      'photoUrl': photoUrl,
+      'createdAt': Timestamp.fromDate(createdAt),
     };
   }
 
-  void operator [](String other) {}
+  factory UserModel.fromDocument(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return UserModel(
+      uid: doc.id,
+      email: data['email'] ?? '',
+      fullName: data['fullName'] ?? '',
+      role: data['role'] ?? 'student',
+      region: data['region'] ?? '',
+      status: data['status'] ?? 'pending',
+      photoUrl: data['photoUrl'],
+      createdAt: (data['createdAt'] as Timestamp).toDate(),
+    );
+  }
 
-  static UserModel? fromFirestore(Map<String, dynamic> map, String id) {
-    return null;
+  UserModel copyWith({
+    String? uid,
+    String? email,
+    String? fullName,
+    String? role,
+    String? region,
+    String? status,
+    String? photoUrl,
+    DateTime? createdAt,
+  }) {
+    return UserModel(
+      uid: uid ?? this.uid,
+      email: email ?? this.email,
+      fullName: fullName ?? this.fullName,
+      role: role ?? this.role,
+      region: region ?? this.region,
+      status: status ?? this.status,
+      photoUrl: photoUrl ?? this.photoUrl,
+      createdAt: createdAt ?? this.createdAt,
+    );
   }
 }

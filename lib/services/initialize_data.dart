@@ -18,7 +18,8 @@ Future<void> initializeData() async {
       region: 'Fianarantsoa',
       role: 'étudiant',
       status: 'active',
-      createdAt: Timestamp.now().toDate(), // Convertit Timestamp en DateTime
+      createdAt: Timestamp.now().toDate(),
+      photoUrl: '', // Convertit Timestamp en DateTime
     );
     await firestoreService.addUser(student);
   }
@@ -56,7 +57,8 @@ Future<void> initializeData() async {
       region: 'Antananarivo',
       role: 'admin',
       status: 'active',
-      createdAt: Timestamp.now().toDate(), // Convertit Timestamp en DateTime
+      createdAt: Timestamp.now().toDate(),
+      photoUrl: '', // Convertit Timestamp en DateTime
     );
     await firestoreService.addUser(admin);
   }
@@ -70,7 +72,8 @@ Future<void> initializeData() async {
       region: 'Fianarantsoa',
       role: 'coordinateur',
       status: 'active',
-      createdAt: Timestamp.now().toDate(), // Convertit Timestamp en DateTime
+      createdAt: Timestamp.now().toDate(),
+      photoUrl: '',
     );
     await firestoreService.addUser(coordo);
   }

@@ -4,12 +4,18 @@ import 'package:flutter/foundation.dart';
 import '../models/user_model.dart';
 
 class AppAuthProvider extends ChangeNotifier {
+  // Firebase instances
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // Private state variables
   User? _user;
   UserModel? _userModel;
   Stream<UserModel?>? _userModelStream;
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Getters
   User? get user => _user;
   UserModel? get userModel => _userModel;
   Stream<UserModel?> get userModelStream =>
@@ -18,8 +24,17 @@ class AppAuthProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
 
   AppAuthProvider() {
-    _user = FirebaseAuth.instance.currentUser;
+    _user = _auth.currentUser;
     if (_user != null) fetchUserModel();
+  }
+
+  Stream<UserModel?> _getUserModelStream() {
+    return _firestore.collection('users').doc(_user?.uid ?? '').snapshots().map(
+      (doc) {
+        if (!doc.exists) return null;
+        return UserModel.fromDocument(doc);
+      },
+    );
   }
 
   Future<void> signIn(String email, String password) async {
@@ -28,11 +43,12 @@ class AppAuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      _user = (await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
-      )).user;
+      );
 
+      _user = credential.user;
       await fetchUserModel();
     } catch (e) {
       _errorMessage = _getAuthErrorMessage(e);
@@ -56,24 +72,21 @@ class AppAuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      final userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
-      final status = (role == 'admin') ? 'approved' : 'pending';
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-            'uid': userCredential.user!.uid,
-            'email': email,
-            'fullName': fullName,
-            'region': region,
-            'role': role,
-            'status': status,
-            'photoUrl': null,
-            'createdAt': Timestamp.now(),
-          });
+      await _firestore.collection('users').doc(userCredential.user!.uid).set({
+        'uid': userCredential.user!.uid,
+        'email': email,
+        'fullName': fullName,
+        'region': region,
+        'role': role,
+        'status': role == 'admin' ? 'approved' : 'pending',
+        'photoUrl': null,
+        'createdAt': Timestamp.now(),
+      });
 
       _user = userCredential.user;
       await fetchUserModel();
@@ -91,10 +104,7 @@ class AppAuthProvider extends ChangeNotifier {
   Future<void> fetchUserModel() async {
     try {
       if (_user != null) {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(_user!.uid)
-            .get();
+        final doc = await _firestore.collection('users').doc(_user!.uid).get();
 
         if (doc.exists) {
           _userModel = UserModel.fromDocument(doc);
@@ -111,23 +121,12 @@ class AppAuthProvider extends ChangeNotifier {
     }
   }
 
-  Stream<UserModel?> _getUserModelStream() {
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(_user?.uid ?? '')
-        .snapshots()
-        .map((doc) {
-          if (!doc.exists) return null;
-          return UserModel.fromDocument(doc);
-        });
-  }
-
   Future<void> signOut() async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      await FirebaseAuth.instance.signOut();
+      await _auth.signOut();
       _user = null;
       _userModel = null;
       _errorMessage = null;
@@ -161,7 +160,7 @@ class AppAuthProvider extends ChangeNotifier {
     return 'Une erreur inattendue s\'est produite';
   }
 
-  // Méthode pour rafraîchir les données utilisateur
+  // Ajout d'une méthode pour rafraîchir les données utilisateur
   Future<void> refreshUser() async {
     if (_user != null) {
       await fetchUserModel();

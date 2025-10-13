@@ -8,7 +8,7 @@ final ThemeData appTheme = ThemeData(
     seedColor: AppColors.primary,
     primary: AppColors.primary,
     secondary: AppColors.accent,
-    surface: AppColors.background, // Replaced deprecated 'background'
+    surface: AppColors.background,
     onPrimary: AppColors.accent,
     onSecondary: AppColors.primary,
     onSurface: AppColors.textPrimary,

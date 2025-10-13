@@ -23,16 +23,11 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = Provider.of<AppAuthProvider>(context, listen: false);
-      if (auth.userModel?.role != 'responsable') {
+      // FIX: Vérifier 'regional_coordinator' au lieu de 'responsable'
+      if (auth.userModel?.role != 'regional_coordinator' ||
+          auth.userModel?.status != 'approved') {
         Navigator.pushReplacementNamed(context, LoginScreen.routeName);
       }
-    });
-  }
-
-  void _handleSignOut(AppAuthProvider auth) {
-    auth.signOut().then((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
     });
   }
 
@@ -53,7 +48,11 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: () => _handleSignOut(auth),
+            onPressed: () async {
+              await auth.signOut();
+              if (!mounted) return;
+              Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
+            },
             icon: const Icon(Icons.logout, color: AppColors.accent),
           ),
         ],
@@ -75,7 +74,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
                   boxShadow: [
                     BoxShadow(
                       blurRadius: 8,
-                      color: Colors.black,
+                      color: Colors.black.withOpacity(0.1),
                       offset: const Offset(0, 2),
                     ),
                   ],
@@ -100,6 +99,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
                           children: [
                             CircleAvatar(
                               radius: 28,
+                              backgroundColor: AppColors.accent,
                               backgroundImage: profile.photoUrl != null
                                   ? NetworkImage(profile.photoUrl!)
                                   : null,
@@ -107,7 +107,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
                                   ? const Icon(
                                       Icons.person,
                                       size: 28,
-                                      color: AppColors.accent,
+                                      color: Colors.white,
                                     )
                                   : null,
                             ),
@@ -198,7 +198,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
                                 Icons.edit,
                                 color: AppColors.primary,
                               ),
-                              onPressed: () {},
+                              onPressed: () async {},
                             ),
                           ),
                         );
