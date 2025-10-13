@@ -29,6 +29,13 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
     });
   }
 
+  void _handleSignOut(AppAuthProvider auth) {
+    auth.signOut().then((_) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AppAuthProvider>(context, listen: false);
@@ -46,11 +53,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: () async {
-              await auth.signOut();
-              if (!mounted) return;
-              Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
-            },
+            onPressed: () => _handleSignOut(auth),
             icon: const Icon(Icons.logout, color: AppColors.accent),
           ),
         ],
@@ -195,7 +198,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
                                 Icons.edit,
                                 color: AppColors.primary,
                               ),
-                              onPressed: () async {},
+                              onPressed: () {},
                             ),
                           ),
                         );

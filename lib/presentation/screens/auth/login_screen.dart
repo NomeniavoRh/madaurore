@@ -53,8 +53,8 @@ class LoginScreenState extends State<LoginScreen> {
     try {
       if (_isLogin) {
         await auth.signIn(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
+          _emailController.text.trim(),
+          _passwordController.text.trim(),
         );
       } else {
         await auth.signUp(

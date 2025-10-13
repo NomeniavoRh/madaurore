@@ -47,7 +47,7 @@ class _DashboardAdminScreenState extends State<DashboardAdminScreen> {
         actions: [
           IconButton(
             onPressed: () async {
-              await auth.signOut();
+              auth.signOut();
               if (!mounted) return;
               Navigator.of(context).pushReplacementNamed(LoginScreen.routeName);
             },
