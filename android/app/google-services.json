@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "7341965061",
+    "project_id": "madaction-aeaea",
+    "storage_bucket": "madaction-aeaea.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:7341965061:android:43c166afb1bb4bd568016c",
+        "android_client_info": {
+          "package_name": "dev.andriarosarmelle.madaurore"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "7341965061-at2084ghfj97fqivfl0basukvkfi1mq5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDY8dMIXwNVKblOTxDyx3x0IxepOkdGvos"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "7341965061-at2084ghfj97fqivfl0basukvkfi1mq5.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "7341965061-dkoki7gf00vpnhsehbufja4vfd1gr6jg.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "dev.andriarosarmelle.madaction"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
