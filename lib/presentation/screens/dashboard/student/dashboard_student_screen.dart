@@ -36,10 +36,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
       final auth = Provider.of<AppAuthProvider>(context, listen: false);
       if (auth.userModel?.role != 'student' ||
           auth.userModel?.status != 'approved') {
-        Navigator.pushReplacementNamed(
-          context,
-          '/login',
-        ); // Remplacer par LoginScreen.routeName
+        Navigator.pushReplacementNamed(context, '/login');
       }
       _loadLastUpdateDate();
     });

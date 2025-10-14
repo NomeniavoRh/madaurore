@@ -24,7 +24,7 @@ class DashboardCoordoScreenState extends State<DashboardCoordoScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = Provider.of<AppAuthProvider>(context, listen: false);
       // FIX: Vérifier 'regional_coordinator' au lieu de 'responsable'
-      if (auth.userModel?.role != 'regional_coordinator' ||
+      if (auth.userModel?.role != 'regional_coordinator' || 
           auth.userModel?.status != 'approved') {
         Navigator.pushReplacementNamed(context, LoginScreen.routeName);
       }
