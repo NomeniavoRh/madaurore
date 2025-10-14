@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_options.dart';
 
 import 'core/constants/app_theme.dart';
@@ -11,23 +12,18 @@ import 'presentation/screens/dashboard/coordinator/dashboard_coordo_screen.dart'
 import 'presentation/screens/dashboard/student/dashboard_student_screen.dart';
 
 void main() async {
-  // ÉTAPE 1: Initialiser les bindings Flutter
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    // ÉTAPE 2: Initialiser Firebase
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
     debugPrint('✅ Firebase initialisé avec succès');
 
-    // ÉTAPE 3: Lancer l'application
     runApp(const MadactionApp());
   } catch (e) {
-    // Si une erreur survient pendant l'initialisation
     debugPrint('❌ Erreur d\'initialisation: $e');
-    // Afficher un écran d'erreur
     runApp(const ErrorApp());
   }
 }
@@ -38,37 +34,61 @@ class MadactionApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Provider pour gérer l'authentification dans toute l'app
-    return ChangeNotifierProvider<AppAuthProvider>(
-      create: (_) => AppAuthProvider(),
-      child: MaterialApp(
-        title: 'Madaction',
-        theme: appTheme,
-        debugShowCheckedModeBanner: false,
-
-        // Route initiale (écran de connexion)
-        initialRoute: '/login',
-
-        // Définition des routes nommées
-        routes: {
-          '/login': (context) => const LoginScreen(),
-          '/admin/dashboard_admin': (context) => const DashboardAdminScreen(),
-          '/coordinator/dashboard_coordo': (context) =>
-              const DashboardCoordoScreen(),
-          '/student/dashboard_student': (context) =>
-              const DashboardStudentScreen(),
-        },
-
-        // Gestion des routes inconnues
-        onUnknownRoute: (settings) {
-          return MaterialPageRoute(builder: (context) => const LoginScreen());
-        },
-      ),
+    return FutureBuilder(
+      future: Future.delayed(const Duration(milliseconds: 800)),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const MaterialApp(
+            home: Scaffold(
+              backgroundColor: Colors.white,
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.school, size: 100, color: Colors.blue),
+                    SizedBox(height: 20),
+                    CircularProgressIndicator(),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        return ChangeNotifierProvider<AppAuthProvider>(
+          create: (_) => AppAuthProvider(),
+          child: MaterialApp(
+            title: 'Madaction',
+            theme: appTheme,
+            debugShowCheckedModeBanner: false,
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: const [Locale('fr', ''), Locale('en', '')],
+            initialRoute: '/login',
+            routes: {
+              '/login': (context) => const LoginScreen(),
+              '/admin/dashboard_admin': (context) =>
+                  const DashboardAdminScreen(),
+              '/coordinator/dashboard_coordo': (context) =>
+                  const DashboardCoordoScreen(),
+              '/student/dashboard_student': (context) =>
+                  const DashboardStudentScreen(),
+            },
+            onUnknownRoute: (settings) {
+              return MaterialPageRoute(
+                builder: (context) => const LoginScreen(),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
 
-// Widget d'erreur en cas de problème d'initialisation
+// Widget d'erreur
 class ErrorApp extends StatelessWidget {
   const ErrorApp({super.key});
 
@@ -98,10 +118,7 @@ class ErrorApp extends StatelessWidget {
                 ),
                 const SizedBox(height: 32),
                 ElevatedButton.icon(
-                  onPressed: () {
-                    // Redémarrer l'application
-                    runApp(const MadactionApp());
-                  },
+                  onPressed: () => runApp(const MadactionApp()),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Réessayer'),
                   style: ElevatedButton.styleFrom(

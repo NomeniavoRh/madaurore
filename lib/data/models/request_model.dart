@@ -10,7 +10,7 @@ class RequestModel {
   final String? localisation;
   final String? pdfUrl;
   final String? justificationUrl;
-  final String? reason; // 'Medical', 'Family', 'Other'
+  final String? reason;
 
   RequestModel({
     required this.id,

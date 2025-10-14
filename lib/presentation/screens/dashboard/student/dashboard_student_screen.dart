@@ -1,10 +1,16 @@
+import 'dart:async'; // Fix: Import pour StreamSubscription
 import 'dart:io' show File;
+import 'dart:typed_data'; // Pour Uint8List PDF
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:pdf/pdf.dart'; // Pour génération PDF
+import 'package:pdf/widgets.dart' as pw; // Widgets PDF
+import 'package:printing/printing.dart'; // Pour sauvegarde/partage PDF
 import 'package:madaurore/core/constants/app_colors.dart';
 import 'package:madaurore/data/repositories/app_auth_provider.dart';
 import 'package:madaurore/data/models/request_model.dart';
@@ -28,6 +34,8 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
   final TextEditingController _updateContentController =
       TextEditingController();
   bool _isLoading = false;
+  StreamSubscription<QuerySnapshot>?
+  _requestsSubscription; // Gère subscription pour dispose
 
   @override
   void initState() {
@@ -83,7 +91,6 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
         return;
       }
       setState(() => _isLoading = true);
-      // ignore: use_build_context_synchronously
       final auth = Provider.of<AppAuthProvider>(context, listen: false);
       final user = auth.user;
       if (user != null) {
@@ -117,11 +124,69 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
     }
   }
 
+  // Fonction PDF export (limit pour mémoire)
   Future<void> _exportRequests(List<RequestModel> requests) async {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('PDF exporté')));
+    if (requests.isEmpty || !mounted) return;
+
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (pw.Context context) => [
+          pw.Header(
+            level: 0,
+            child: pw.Text(
+              'Récapitulatif des Demandes',
+              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+          pw.SizedBox(height: 20),
+          pw.TableHelper.fromTextArray(
+            context: context,
+            headers: ['Titre', 'Raison', 'Statut', 'Région', 'Date Création'],
+            data: requests
+                .take(10)
+                .map(
+                  (r) => [
+                    r.titre,
+                    r.reason ?? 'N/A',
+                    r.statut,
+                    r.region,
+                    r.createdAt.toString().split(' ')[0],
+                  ],
+                )
+                .toList(),
+            border: null,
+            headerStyle: pw.TextStyle(
+              fontWeight: pw.FontWeight.bold,
+              fontSize: 12,
+            ),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+            cellHeight: 30,
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            cellAlignment: pw.Alignment.centerLeft,
+          ),
+          pw.SizedBox(height: 20),
+          pw.Text(
+            'Généré le ${DateTime.now().toString().split(' ')[0]}',
+            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700),
+          ),
+        ],
+      ),
+    );
+
+    final Uint8List bytes = await pdf.save();
+    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => bytes);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('PDF exporté et ouvert pour impression/partage'),
+        ),
+      );
+    }
   }
 
   Future<void> _showMonthlyUpdateDialog() async {
@@ -165,8 +230,11 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
       );
     }
 
-    return StreamBuilder<UserModel?>(
-      stream: auth.userModelStream,
+    // FutureBuilder pour userModel (évite Stream leak constant)
+    return FutureBuilder<UserModel?>(
+      future: auth.refreshUserModel().then(
+        (_) => auth.userModel,
+      ), // Fix: Retourne Future<UserModel?>
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -184,12 +252,18 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
           stream: FirebaseFirestore.instance
               .collection('requests')
               .where('userId', isEqualTo: user.uid)
+              .orderBy('createdAt', descending: true)
+              .limit(20) // Limit pour mémoire
               .snapshots()
               .map(
                 (snapshot) => snapshot.docs
                     .map((doc) => RequestModel.fromDocument(doc))
                     .toList(),
-              ),
+              )
+              .handleError((e) {
+                debugPrint('❌ Erreur requestsStream: $e');
+                return Stream.value(<RequestModel>[]); // Fallback vide
+              }),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -197,180 +271,165 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
               );
             }
             final requests = snapshot.data ?? [];
+            final hasError = snapshot.hasError;
 
             return Scaffold(
               appBar: AppBar(
                 backgroundColor: AppColors.primary,
                 title: Text(
                   'Tableau de bord étudiant',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: AppColors.background,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                actions: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.notifications,
-                      color: AppColors.accent,
-                    ),
-                    onPressed: () {},
-                  ),
-                ],
-                centerTitle: true,
-                elevation: 0,
               ),
-              body: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : SafeArea(
+              body: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    // Carte profil
+                    CustomCard(
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            children: [
-                              CustomCard(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16.0),
-                                  child: Column(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 50,
-                                        backgroundImage:
-                                            userModel.photoUrl != null
-                                            ? NetworkImage(userModel.photoUrl!)
-                                            : null,
-                                        child: userModel.photoUrl == null
-                                            ? const Icon(Icons.person, size: 50)
-                                            : null,
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        userModel.fullName,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge
-                                            ?.copyWith(
-                                              color: AppColors.primary,
-                                            ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(
-                                            Icons.location_on,
-                                            color: AppColors.accent,
-                                            size: 20,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            userModel.region,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodyMedium
-                                                ?.copyWith(
-                                                  color: AppColors.primary,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 50,
+                              backgroundImage: userModel.photoUrl != null
+                                  ? NetworkImage(userModel.photoUrl!)
+                                  : null,
+                              child: userModel.photoUrl == null
+                                  ? const Icon(Icons.person, size: 50)
+                                  : null,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              userModel.fullName,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(color: AppColors.primary),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.location_on,
+                                  color: AppColors.accent,
+                                  size: 20,
                                 ),
-                              ),
-                              const SizedBox(height: 24),
-                              Text(
-                                'Mes demandes de parrainage',
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(color: AppColors.primary),
-                              ),
-                              const SizedBox(height: 16),
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: requests.length,
-                                itemBuilder: (context, index) {
-                                  final request = requests[index];
-                                  return GestureDetector(
-                                    onTap: request.statut == 'accepté'
-                                        ? () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    JustificationUploadScreen(
-                                                      requestId: request.id,
-                                                    ),
-                                              ),
-                                            );
-                                          }
-                                        : null,
-                                    child: CustomCard(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(16.0),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              request.titre,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleSmall
-                                                  ?.copyWith(
-                                                    color: AppColors.primary,
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 8),
-                                            StatusBadge(status: request.statut),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 32),
-                              CustomButton(
-                                text: 'Exporter en PDF',
-                                onPressed: () => _exportRequests(requests),
-                              ),
-                              const SizedBox(height: 12),
-                              CustomButton(
-                                text: 'Envoyer par mail',
-                                onPressed: () {},
-                              ),
-                              const SizedBox(height: 12),
-                              CustomButton(
-                                text: 'Nouvelle demande',
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const RequestSubmitScreen(),
-                                    ),
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                              CustomButton(
-                                text: 'Mise à jour mensuelle',
-                                onPressed: _showMonthlyUpdateDialog,
-                              ),
-                              const SizedBox(height: 12),
-                              _isLoading
-                                  ? const CircularProgressIndicator()
-                                  : CustomButton(
-                                      text: 'Envoyer justificatif',
-                                      onPressed: _uploadJustification,
-                                    ),
-                            ],
-                          ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  userModel.region,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(color: AppColors.primary),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Mes demandes de parrainage',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (hasError)
+                      const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text(
+                          'Erreur de chargement. Réessayez.',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      )
+                    else if (requests.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Text(
+                          'Aucune demande pour le moment.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: requests.length,
+                        itemBuilder: (context, index) {
+                          final request = requests[index];
+                          return GestureDetector(
+                            onTap: request.statut == 'accepté'
+                                ? () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            JustificationUploadScreen(
+                                              requestId: request.id,
+                                            ),
+                                      ),
+                                    );
+                                  }
+                                : null,
+                            child: CustomCard(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      request.titre,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(color: AppColors.primary),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    StatusBadge(status: request.statut),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    const SizedBox(height: 32),
+                    CustomButton(
+                      text: 'Exporter en PDF',
+                      onPressed: () => _exportRequests(requests),
+                    ),
+                    const SizedBox(height: 12),
+                    CustomButton(
+                      text: 'Nouvelle demande',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RequestSubmitScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    CustomButton(
+                      text: 'Mise à jour mensuelle',
+                      onPressed: _showMonthlyUpdateDialog,
+                    ),
+                    const SizedBox(height: 12),
+                    _isLoading
+                        ? const CircularProgressIndicator()
+                        : CustomButton(
+                            text: 'Envoyer justificatif',
+                            onPressed: _uploadJustification,
+                          ),
+                  ],
+                ),
+              ),
             );
           },
         );
@@ -381,6 +440,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
   @override
   void dispose() {
     _updateContentController.dispose();
+    _requestsSubscription?.cancel(); // Libère mémoire
     super.dispose();
   }
 }

@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "7341965061-0l7gu2lnk6mn9a41iu83t3nn62t0jpfs.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "dev.andriarosarmelle.madaurore",
+            "certificate_hash": "98603c9803cbe90febb3c4786b54b9ac33fafe78"
+          }
+        },
+        {
           "client_id": "7341965061-at2084ghfj97fqivfl0basukvkfi1mq5.apps.googleusercontent.com",
           "client_type": 3
         }

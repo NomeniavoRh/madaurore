@@ -7,22 +7,23 @@ class AppAuthProvider with ChangeNotifier {
   // Instances Firebase
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  
+
   // État de l'utilisateur
   User? _user;
   UserModel? _userModel;
-  
+  bool _isRefreshing = false; // Fix: Flag pour éviter loop refresh
+
   // Getters
   User? get user => _user;
   UserModel? get userModel => _userModel;
-  
+
   // =====================================================
   // STREAM DU USERMODEL (temps réel)
   // =====================================================
   Stream<UserModel?> get userModelStream {
     // Si pas d'utilisateur connecté, retourner null
     if (_user == null) return Stream.value(null);
-    
+
     return _firestore
         .collection('users')
         .doc(_user!.uid)
@@ -33,14 +34,18 @@ class AppAuthProvider with ChangeNotifier {
             debugPrint('⚠️ Document utilisateur non trouvé pour ${_user!.uid}');
             return null;
           }
-          
+
           try {
             // Parser le UserModel
             _userModel = UserModel.fromDocument(doc);
-            
-            // Notifier les listeners
-            notifyListeners();
-            
+
+            // Notifier les listeners seulement si changement réel (évite loop)
+            if (_isRefreshing) {
+              _isRefreshing = false;
+            } else {
+              notifyListeners();
+            }
+
             return _userModel;
           } catch (e) {
             debugPrint('❌ Erreur parsing UserModel: $e');
@@ -52,7 +57,7 @@ class AppAuthProvider with ChangeNotifier {
           return null;
         });
   }
-  
+
   // =====================================================
   // CONSTRUCTEUR
   // =====================================================
@@ -66,48 +71,52 @@ class AppAuthProvider with ChangeNotifier {
       notifyListeners();
     });
   }
-  
+
   // =====================================================
   // CONNEXION
   // =====================================================
   Future<void> signIn(String email, String password) async {
     try {
       debugPrint('🔐 Tentative de connexion pour: $email');
-      
+
       // Étape 1: Authentifier avec Firebase Auth
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
-      
+
       _user = userCredential.user;
-      
+
       if (_user != null) {
         // Étape 2: Récupérer les données utilisateur depuis Firestore
         final doc = await _firestore.collection('users').doc(_user!.uid).get();
-        
+
         if (!doc.exists) {
           await signOut();
           throw Exception('Utilisateur non trouvé dans la base de données');
         }
-        
+
         // Étape 3: Parser le UserModel
         _userModel = UserModel.fromDocument(doc);
-        
+
         // Étape 4: Vérifier le statut
         if (_userModel!.status != 'approved') {
           await signOut();
-          throw Exception('Compte ${_userModel!.status == 'pending' ? 'en attente d\'approbation' : 'rejeté'}');
+          throw Exception(
+            'Compte ${_userModel!.status == 'pending' ? 'en attente d\'approbation' : 'rejeté'}',
+          );
         }
-        
+
+        // Étape 5: Rafraîchir le token pour propager les custom claims
+        await _user!.getIdToken(true);
+
         debugPrint('✅ Connexion réussie pour: ${_userModel!.email}');
       }
-      
+
       notifyListeners();
-      
     } on FirebaseAuthException catch (e) {
       debugPrint('❌ Erreur FirebaseAuth: ${e.code}');
-      
+
       // Traduire les erreurs Firebase en français
       String message;
       switch (e.code) {
@@ -132,15 +141,14 @@ class AppAuthProvider with ChangeNotifier {
         default:
           message = 'Erreur de connexion: ${e.message}';
       }
-      
+
       throw Exception(message);
-      
     } catch (e) {
       debugPrint('❌ Erreur connexion: $e');
       throw Exception('Erreur de connexion: $e');
     }
   }
-  
+
   // =====================================================
   // INSCRIPTION
   // =====================================================
@@ -153,45 +161,43 @@ class AppAuthProvider with ChangeNotifier {
   }) async {
     try {
       debugPrint('📝 Tentative d\'inscription pour: $email');
-      
+
       // Étape 1: Créer l'utilisateur dans Firebase Auth
       final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      
+
       _user = userCredential.user;
-      
+
       if (_user != null) {
         // Étape 2: Créer le document Firestore
-        // IMPORTANT: Utiliser toMap() qui convertit Timestamp correctement
         final userModel = UserModel(
           uid: _user!.uid,
           email: email,
           fullName: fullName,
           region: region,
           role: role,
-          status: 'pending', // En attente par défaut
+          status: 'pending', // En attente par défaut (sauf admin)
           createdAt: DateTime.now(),
           photoUrl: null,
         );
-        
-        // Sauvegarder dans Firestore (pas de cache Hive)
+
+        // Sauvegarder dans Firestore
         await _firestore
             .collection('users')
             .doc(_user!.uid)
             .set(userModel.toMap());
-        
+
         _userModel = userModel;
-        
+
         debugPrint('✅ Inscription réussie pour: $email');
       }
-      
+
       notifyListeners();
-      
     } on FirebaseAuthException catch (e) {
       debugPrint('❌ Erreur FirebaseAuth inscription: ${e.code}');
-      
+
       String message;
       switch (e.code) {
         case 'email-already-in-use':
@@ -206,26 +212,25 @@ class AppAuthProvider with ChangeNotifier {
         default:
           message = 'Erreur d\'inscription: ${e.message}';
       }
-      
+
       // Nettoyer si échec
       if (_user != null) {
         await _user!.delete();
       }
-      
+
       throw Exception(message);
-      
     } catch (e) {
       debugPrint('❌ Erreur inscription: $e');
-      
+
       // Nettoyer si échec
       if (_user != null) {
         await _user!.delete();
       }
-      
+
       throw Exception('Erreur d\'inscription: $e');
     }
   }
-  
+
   // =====================================================
   // DÉCONNEXION
   // =====================================================
@@ -241,23 +246,34 @@ class AppAuthProvider with ChangeNotifier {
       throw Exception('Erreur de déconnexion: $e');
     }
   }
-  
+
   // =====================================================
-  // RAFRAÎCHIR LE USERMODEL
+  // RAFRAÎCHIR LE USERMODEL (avec flag pour éviter loop)
   // =====================================================
-  Future<void> refreshUserModel() async {
-    if (_user == null) return;
-    
+  Future<UserModel?> refreshUserModel() async {
+    if (_user == null) return null;
+
+    if (_isRefreshing) return _userModel; // Évite loop
+    _isRefreshing = true;
+
     try {
       final doc = await _firestore.collection('users').doc(_user!.uid).get();
-      
+
       if (doc.exists) {
-        _userModel = UserModel.fromDocument(doc);
-        notifyListeners();
+        final newModel = UserModel.fromDocument(doc);
+        if (newModel != _userModel) {
+          // Notify seulement si changement
+          _userModel = newModel;
+          notifyListeners();
+        }
         debugPrint('✅ UserModel rafraîchi');
+        return _userModel;
       }
     } catch (e) {
       debugPrint('❌ Erreur rafraîchissement: $e');
+    } finally {
+      _isRefreshing = false;
     }
+    return _userModel;
   }
 }
