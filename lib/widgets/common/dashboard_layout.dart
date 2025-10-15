@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/constants/spacing.dart';
 
 class DashboardLayout extends StatelessWidget {
   final Widget content;
@@ -8,19 +9,25 @@ class DashboardLayout extends StatelessWidget {
   final Widget? floatingActionButton;
 
   const DashboardLayout({
-    Key? key,
+    super.key,
     required this.content,
     required this.title,
     this.actions,
     this.drawer,
     this.floatingActionButton,
-  }) : super(key: key);
+  });
+
+  bool isMobile(BuildContext context) =>
+      MediaQuery.of(context).size.width < 650;
+
+  bool isTablet(BuildContext context) =>
+      MediaQuery.of(context).size.width >= 650 &&
+      MediaQuery.of(context).size.width < 1100;
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 600;
-    final isMediumScreen = screenWidth < 1200;
+    final isSmallScreen = isMobile(context);
+    final isMediumScreen = isTablet(context);
 
     return Scaffold(
       appBar: isSmallScreen
@@ -30,20 +37,22 @@ class DashboardLayout extends StatelessWidget {
       body: Row(
         children: [
           if (!isSmallScreen && drawer != null)
-            SizedBox(width: 250, child: drawer!),
+            SizedBox(width: isMediumScreen ? 200 : 250, child: drawer!),
           Expanded(
             child: Column(
               children: [
                 if (!isSmallScreen)
                   Container(
                     height: 64,
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.paddingSM,
+                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).primaryColor,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black12,
-                          offset: Offset(0, 2),
+                          color: Colors.black.withValues(alpha: 26),
+                          offset: const Offset(0, 2),
                           blurRadius: 4,
                         ),
                       ],
@@ -55,14 +64,16 @@ class DashboardLayout extends StatelessWidget {
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(color: Colors.white),
                         ),
-                        Spacer(),
+                        const Spacer(),
                         if (actions != null) ...actions!,
                       ],
                     ),
                   ),
                 Expanded(
-                  child: Container(
-                    padding: EdgeInsets.all(isMediumScreen ? 16 : 24),
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(
+                      isSmallScreen ? Spacing.paddingXS : Spacing.paddingSM,
+                    ),
                     child: content,
                   ),
                 ),

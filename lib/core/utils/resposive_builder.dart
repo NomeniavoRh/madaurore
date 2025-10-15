@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 class ResponsiveBuilder extends StatelessWidget {
-  final Widget mobile;
-  final Widget? tablet;
-  final Widget? desktop;
+  final Widget mobileLayout;
+  final Widget? tabletLayout;
+  final Widget? desktopLayout;
 
   const ResponsiveBuilder({
-    Key? key,
-    required this.mobile,
-    this.tablet,
-    this.desktop,
-  }) : super(key: key);
+    super.key,
+    required this.mobileLayout,
+    this.tabletLayout,
+    this.desktopLayout,
+  });
 
   static bool isMobile(BuildContext context) =>
       MediaQuery.of(context).size.width < 650;
@@ -27,12 +27,12 @@ class ResponsiveBuilder extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth >= 1100) {
-          return desktop ?? tablet ?? mobile;
+          return desktopLayout ?? tabletLayout ?? mobileLayout;
         }
         if (constraints.maxWidth >= 650) {
-          return tablet ?? mobile;
+          return tabletLayout ?? mobileLayout;
         }
-        return mobile;
+        return mobileLayout;
       },
     );
   }

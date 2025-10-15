@@ -4,6 +4,8 @@ import '../../../widgets/common/dashboard_stats.dart';
 import '../../../widgets/common/responsive_list.dart';
 
 class DashboardCoordoScreen extends StatelessWidget {
+  const DashboardCoordoScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return DashboardLayout(

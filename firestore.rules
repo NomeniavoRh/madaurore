@@ -1,112 +1,100 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Fonction utilitaire pour vérifier le rôle via custom claims
-    function isRole(role) {
-      return request.auth.token.role == role;
-    }
-
-    // Fonction utilitaire pour vérifier si l'utilisateur est authentifié
+    
     function isAuthenticated() {
       return request.auth != null;
     }
-
-    // Fonction utilitaire pour vérifier si le document appartient à la même région (via custom claims)
-    function isSameRegion() {
-      return resource.data.region == request.auth.token.region;
-    }
-
-    // Fonction utilitaire pour vérifier si l'étudiant est validé
-    function isValidatedStudent() {
-      return isRole('student') && resource.data.status == 'approved';
-    }
-
-    // --- USERS ---
+    
+    // ========== USERS - RÈGLE SPÉCIALE (pas de getUserData ici !) ==========
     match /users/{userId} {
-      // Étudiant → peut lire/écrire uniquement son propre profil si validé
-      allow read: if isAuthenticated() && isRole('student') && request.auth.uid == userId && isValidatedStudent();
-      allow create, update: if isAuthenticated() && isRole('student') && request.auth.uid == userId;
-
-      // Coordinateur → peut lire et mettre à jour les utilisateurs de sa région
-      allow read, update: if isAuthenticated() && isRole('coordinator') && isSameRegion();
-
-      // Admin → accès total
-      allow read, create, update, delete: if isAuthenticated() && isRole('admin');
+      // Lecture : TOUJOURS autorisée pour son propre doc (évite la boucle)
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Liste : tous les authentifiés (pour que les dashboards fonctionnent)
+      allow list: if isAuthenticated();
+      
+      // Création : par soi-même lors de l'inscription
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Mise à jour : par soi-même ou si le doc existe déjà et qu'on est admin
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Suppression : toujours refusée (sauf manuellement via console)
+      allow delete: if false;
     }
-
-    // --- SPONSORSHIP REQUESTS (demandes de parrainage) ---
-    match /sponsorship_requests/{reqId} {
-      // Étudiant → peut créer et lire ses propres demandes
-      allow create: if isAuthenticated() && isRole('student') && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && isRole('student') && resource.data.userId == request.auth.uid;
-
-      // Coordinateur → peut lire et mettre à jour les demandes de sa région
-      allow read, update: if isAuthenticated() && isRole('coordinator') && isSameRegion();
-
-      // Admin → accès total
-      allow read, create, update, delete: if isAuthenticated() && isRole('admin');
+    
+    // Pour les autres collections, on peut maintenant utiliser getUserData
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
-
-    // --- VALIDATION REQUESTS (inscriptions en attente) ---
-    match /validation_requests/{valId} {
-      // Étudiant → peut créer une validation pour son compte
-      allow create: if isAuthenticated() && isRole('student') && request.resource.data.userId == request.auth.uid;
-
-      // Coordinateur → peut lire et valider les demandes de sa région
-      allow read, update: if isAuthenticated() && isRole('coordinator') && isSameRegion();
-
-      // Admin → accès total
-      allow read, create, update, delete: if isAuthenticated() && isRole('admin');
+    
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
     }
-
-    // --- UPDATES (actualités mensuelles, infos générales) ---
-    match /updates/{docId} {
-      // Lecture accessible à tous les utilisateurs connectés
+    
+    function isAdmin() {
+      return hasRole('admin');
+    }
+    
+    function isCoordinator() {
+      return hasRole('regional_coordinator');
+    }
+    
+    function isStudent() {
+      return hasRole('student');
+    }
+    
+    function userRegion() {
+      let userData = getUserData();
+      return userData != null ? userData.region : null;
+    }
+    
+    // ========== REQUESTS ==========
+    match /requests/{requestId} {
       allow read: if isAuthenticated();
-
-      // Admin et coordinateur peuvent écrire
-      allow create, update, delete: if isAuthenticated() && (isRole('admin') || isRole('coordinator'));
+      allow list: if isAuthenticated();
+      allow create: if isStudent();
+      allow update: if isAdmin() || isCoordinator();
+      allow delete: if isAdmin();
     }
-
-    // --- REQUESTS ---
-    match /requests/{docId} {
-      // Étudiant → peut créer et lire ses propres demandes
-      allow create: if isAuthenticated() && isRole('student') && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && isRole('student') && resource.data.userId == request.auth.uid;
-
-      // Coordinateur → peut lire et mettre à jour les demandes de sa région
-      allow read, update: if isAuthenticated() && isRole('coordinator') && isSameRegion();
-
-      // Admin → accès total
-      allow read, create, update, delete: if isAuthenticated() && isRole('admin');
-    }
-
-    // --- JUSTIFICATIFS ---
-    match /justificatifs/{docId} {
-      // Étudiant → peut créer et lire ses propres justificatifs
-      allow create: if isAuthenticated() && isRole('student') && request.resource.data.userId == request.auth.uid;
-      allow read: if isAuthenticated() && isRole('student') && resource.data.userId == request.auth.uid;
-
-      // Coordinateur → peut lire les justificatifs de sa région
-      allow read: if isAuthenticated() && isRole('coordinator') && isSameRegion();
-
-      // Admin → accès total
-      allow read, create, update, delete: if isAuthenticated() && isRole('admin');
-    }
-
-    // --- REGIONS (si utilisée pour les listes dynamiques) ---
-    match /regions/{docId} {
-      // Lecture publique pour tous les utilisateurs connectés
+    
+    // ========== SPONSORSHIP_REQUESTS ==========
+    match /sponsorship_requests/{requestId} {
       allow read: if isAuthenticated();
-
-      // Écriture réservée aux admins
-      allow create, update, delete: if isAuthenticated() && isRole('admin');
+      allow list: if isAuthenticated();
+      allow create: if isStudent();
+      allow update: if isAdmin() || isCoordinator();
+      allow delete: if isAdmin();
     }
-
-    // Règle générale : interdire l’accès non spécifié
-    match /{document=**} {
-      allow read, write: if false;
+    
+    // ========== VALIDATION_REQUESTS ==========
+    match /validation_requests/{validationId} {
+      allow read: if isAuthenticated();
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() || isCoordinator();
+      allow delete: if isAdmin();
+    }
+    
+    // ========== UPDATES ==========
+    match /updates/{updateId} {
+      allow read, list: if isAuthenticated();
+      allow create: if isStudent();
+      allow update, delete: if isAdmin();
+    }
+    
+    // ========== JUSTIFICATIFS ==========
+    match /justificatifs/{justificatifId} {
+      allow read, list: if isAuthenticated();
+      allow create: if isStudent();
+      allow update, delete: if isAdmin();
+    }
+    
+    // ========== REGIONS ==========
+    match /regions/{regionId} {
+      allow read, list: if true;
+      allow create, update, delete: if isAdmin();
     }
   }
 }

@@ -59,7 +59,7 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   // =====================================================
-  // SOUMISSION DU FORMULAIRE
+  // SOUMISSION DU FORMULAIRE - Améliorée avec debug et force reload
   // =====================================================
   Future<void> _submit() async {
     // Validation du formulaire
@@ -75,39 +75,51 @@ class LoginScreenState extends State<LoginScreen> {
     try {
       if (_isLogin) {
         // ===== MODE CONNEXION =====
+        debugPrint('🔍 [LoginScreen] Début connexion pour: ${_emailController.text.trim()}');
         await auth.signIn(
           _emailController.text.trim(),
           _passwordController.text.trim(),
         );
 
-        // Attendre que le userModel soit chargé
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Force le reload pour sync userModel (fix timing async)
+        debugPrint('🔍 [LoginScreen] Force reload userModel post-signIn');
+        await auth.forceReloadUserModel();
+
+        // Petit delay supplémentaire si besoin (GMS/Firestore lag)
+        await Future.delayed(const Duration(milliseconds: 300));
 
         if (!mounted) return;
 
         final userModel = auth.userModel;
 
+        debugPrint('🔍 [LoginScreen] userModel post-reload: rôle=${userModel?.role}, status=${userModel?.status}');
+
         if (userModel == null) {
+          debugPrint('⚠️ [LoginScreen] userModel null après reload - Erreur fetch Firestore ?');
           throw Exception('Impossible de récupérer les données utilisateur');
         }
 
         // Vérifier le statut
         if (userModel.status == 'pending') {
+          debugPrint('🚫 [LoginScreen] Statut pending - Déconnexion');
           _showStatusDialog('pending');
           await auth.signOut();
           return;
         }
 
         if (userModel.status == 'rejected') {
+          debugPrint('🚫 [LoginScreen] Statut rejected - Déconnexion');
           _showStatusDialog('rejected');
           await auth.signOut();
           return;
         }
 
         // Navigation selon le rôle
+        debugPrint('🚀 [LoginScreen] Navigation vers dashboard pour rôle: ${userModel.role}');
         _navigateToRoleDashboard(userModel.role);
       } else {
         // ===== MODE INSCRIPTION =====
+        debugPrint('📝 [LoginScreen] Début inscription pour: ${_emailController.text.trim()}, rôle: $_selectedRole');
         await auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
@@ -119,9 +131,11 @@ class LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
 
         // Afficher un message de succès
+        debugPrint('✅ [LoginScreen] Inscription OK - Affichage dialog');
         _showSuccessDialog();
       }
     } catch (e) {
+      debugPrint('❌ [LoginScreen] Erreur _submit: $e');
       if (!mounted) return;
 
       // Afficher l'erreur
@@ -134,7 +148,7 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   // =====================================================
-  // NAVIGATION SELON LE RÔLE
+  // NAVIGATION SELON LE RÔLE - Sans changement
   // =====================================================
   void _navigateToRoleDashboard(String role) {
     String route;
@@ -155,10 +169,11 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   // =====================================================
-  // DIALOGUES
+  // DIALOGUES - Sans changement majeur, + debug mineur
   // =====================================================
 
   void _showErrorDialog(String message) {
+    debugPrint('💬 [LoginScreen] Affichage erreur dialog: $message');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -202,6 +217,7 @@ class LoginScreenState extends State<LoginScreen> {
       color = AppColors.error;
     }
 
+    debugPrint('💬 [LoginScreen] Affichage status dialog: $status');
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -224,6 +240,7 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   void _showSuccessDialog() {
+    debugPrint('💬 [LoginScreen] Affichage success dialog');
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -254,7 +271,7 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   // =====================================================
-  // INTERFACE UTILISATEUR
+  // INTERFACE UTILISATEUR - Améliorée avec loader pour userModel
   // =====================================================
 
   @override
@@ -264,189 +281,200 @@ class LoginScreenState extends State<LoginScreen> {
     final double logoSize =
         screenWidth * 0.2; // 20% of screen width, adjustable
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          _isLogin ? 'Connexion' : 'Inscription',
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: _loading
-                ? null
-                : () {
-                    setState(() => _isLogin = !_isLogin);
-                  },
-            child: Text(
-              _isLogin ? 'S\'inscrire' : 'Se connecter',
-              style: TextStyle(
-                color: _loading ? Colors.grey : AppColors.accent,
-                fontFamily: 'Poppins',
-                fontWeight: FontWeight.w500,
-              ),
+    return Consumer<AppAuthProvider>(
+      builder: (context, auth, child) {
+        // Si userModel loading, afficher loader global (fix pour timing)
+        if (auth.isLoadingUserModel && auth.user != null) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _isLogin ? 'Connexion' : 'Inscription',
+              style: Theme.of(context).textTheme.headlineMedium,
             ),
+            actions: [
+              TextButton(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        setState(() => _isLogin = !_isLogin);
+                      },
+                child: Text(
+                  _isLogin ? 'S\'inscrire' : 'Se connecter',
+                  style: TextStyle(
+                    color: _loading ? Colors.grey : AppColors.accent,
+                    fontFamily: 'Poppins',
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Card(
-              elevation: Theme.of(context).cardTheme.elevation,
-              shape: Theme.of(context).cardTheme.shape,
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Logo ou titre
-                      Image.asset(
-                        'assets/images/madaction_logo.png', // Path to your logo
-                        height: logoSize, // Responsive height
-                        width: logoSize, // Responsive width
-                        fit: BoxFit.contain, // Maintain aspect ratio
-                      ),
-                      const SizedBox(height: 24),
+          body: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 600),
+                child: Card(
+                  elevation: Theme.of(context).cardTheme.elevation,
+                  shape: Theme.of(context).cardTheme.shape,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Logo ou titre
+                          Image.asset(
+                            'assets/images/madaction_logo.png', // Path to your logo
+                            height: logoSize, // Responsive height
+                            width: logoSize, // Responsive width
+                            fit: BoxFit.contain, // Maintain aspect ratio
+                          ),
+                          const SizedBox(height: 24),
 
-                      // Email
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: Icon(Icons.email),
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: validators.validateEmail,
-                        enabled: !_loading,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Mot de passe
-                      TextFormField(
-                        controller: _passwordController,
-                        decoration: InputDecoration(
-                          labelText: 'Mot de passe',
-                          prefixIcon: const Icon(Icons.lock),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                          // Email
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(Icons.email),
                             ),
-                            onPressed: () {
-                              setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              );
-                            },
+                            keyboardType: TextInputType.emailAddress,
+                            validator: validators.validateEmail,
+                            enabled: !_loading,
                           ),
-                        ),
-                        obscureText: _obscurePassword,
-                        validator: validators.validatePassword,
-                        enabled: !_loading,
-                      ),
+                          const SizedBox(height: 16),
 
-                      // Champs supplémentaires pour l'inscription
-                      if (!_isLogin) ...[
-                        const SizedBox(height: 16),
-
-                        // Nom complet
-                        TextFormField(
-                          controller: _fullNameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Nom complet',
-                            prefixIcon: Icon(Icons.person),
-                          ),
-                          validator: (value) => value == null || value.isEmpty
-                              ? 'Nom complet requis'
-                              : null,
-                          enabled: !_loading,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Rôle
-                        DropdownButtonFormField<String>(
-                          value: _selectedRole,
-                          decoration: const InputDecoration(
-                            labelText: 'Rôle',
-                            prefixIcon: Icon(Icons.work),
-                          ),
-                          items: roles.map((role) {
-                            return DropdownMenuItem(
-                              value: role,
-                              child: Text(roleLabels[role] ?? role),
-                            );
-                          }).toList(),
-                          onChanged: _loading
-                              ? null
-                              : (value) {
-                                  setState(
-                                    () => _selectedRole = value ?? 'student',
-                                  );
-                                },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Région
-                        DropdownButtonFormField<String>(
-                          value: _selectedRegion,
-                          decoration: const InputDecoration(
-                            labelText: 'Région',
-                            prefixIcon: Icon(Icons.location_on),
-                          ),
-                          items: regions.map((region) {
-                            return DropdownMenuItem(
-                              value: region,
-                              child: Text(region),
-                            );
-                          }).toList(),
-                          onChanged: _loading
-                              ? null
-                              : (value) {
-                                  setState(
-                                    () => _selectedRegion =
-                                        value ?? 'Antananarivo',
-                                  );
-                                },
-                        ),
-                      ],
-
-                      const SizedBox(height: 24),
-
-                      // Bouton de soumission
-                      ElevatedButton(
-                        onPressed: _loading ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        child: _loading
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    Colors.white,
-                                  ),
+                          // Mot de passe
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Mot de passe',
+                              prefixIcon: const Icon(Icons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
                                 ),
-                              )
-                            : Text(
-                                _isLogin ? 'Se connecter' : 'S\'inscrire',
-                                style: const TextStyle(fontSize: 16),
+                                onPressed: () {
+                                  setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  );
+                                },
                               ),
+                            ),
+                            obscureText: _obscurePassword,
+                            validator: validators.validatePassword,
+                            enabled: !_loading,
+                          ),
+
+                          // Champs supplémentaires pour l'inscription
+                          if (!_isLogin) ...[
+                            const SizedBox(height: 16),
+
+                            // Nom complet
+                            TextFormField(
+                              controller: _fullNameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Nom complet',
+                                prefixIcon: Icon(Icons.person),
+                              ),
+                              validator: (value) => value == null || value.isEmpty
+                                  ? 'Nom complet requis'
+                                  : null,
+                              enabled: !_loading,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Rôle
+                            DropdownButtonFormField<String>(
+                              initialValue: _selectedRole,
+                              decoration: const InputDecoration(
+                                labelText: 'Rôle',
+                                prefixIcon: Icon(Icons.work),
+                              ),
+                              items: roles.map((role) {
+                                return DropdownMenuItem(
+                                  value: role,
+                                  child: Text(roleLabels[role] ?? role),
+                                );
+                              }).toList(),
+                              onChanged: _loading
+                                  ? null
+                                  : (value) {
+                                      setState(
+                                        () => _selectedRole = value ?? 'student',
+                                      );
+                                    },
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Région
+                            DropdownButtonFormField<String>(
+                              initialValue: _selectedRegion,
+                              decoration: const InputDecoration(
+                                labelText: 'Région',
+                                prefixIcon: Icon(Icons.location_on),
+                              ),
+                              items: regions.map((region) {
+                                return DropdownMenuItem(
+                                  value: region,
+                                  child: Text(region),
+                                );
+                              }).toList(),
+                              onChanged: _loading
+                                  ? null
+                                  : (value) {
+                                      setState(
+                                        () => _selectedRegion =
+                                            value ?? 'Antananarivo',
+                                      );
+                                    },
+                            ),
+                          ],
+
+                          const SizedBox(height: 24),
+
+                          // Bouton de soumission
+                          ElevatedButton(
+                            onPressed: _loading ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: _loading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : Text(
+                                    _isLogin ? 'Se connecter' : 'S\'inscrire',
+                                    style: const TextStyle(fontSize: 16),
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

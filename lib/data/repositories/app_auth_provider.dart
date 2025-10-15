@@ -11,18 +11,26 @@ class AppAuthProvider with ChangeNotifier {
   // État de l'utilisateur
   User? _user;
   UserModel? _userModel;
-  bool _isRefreshing = false; // Fix: Flag pour éviter loop refresh
+  bool _isRefreshing = false; // Flag pour éviter loop refresh
+  bool _isLoadingUserModel =
+      false; // Nouveau: Flag pour indiquer le chargement async
 
   // Getters
   User? get user => _user;
   UserModel? get userModel => _userModel;
+  bool get isLoadingUserModel => _isLoadingUserModel;
 
   // =====================================================
-  // STREAM DU USERMODEL (temps réel)
+  // STREAM DU USERMODEL (temps réel) - Amélioré pour debug et gestion d'erreurs
   // =====================================================
   Stream<UserModel?> get userModelStream {
     // Si pas d'utilisateur connecté, retourner null
-    if (_user == null) return Stream.value(null);
+    if (_user == null) {
+      debugPrint('🔍 [Stream] Pas d\'user connecté - Stream null');
+      return Stream.value(null);
+    }
+
+    debugPrint('🔍 [Stream] Démarrage stream pour UID: ${_user!.uid}');
 
     return _firestore
         .collection('users')
@@ -31,49 +39,92 @@ class AppAuthProvider with ChangeNotifier {
         .map((doc) {
           // Si le document n'existe pas
           if (!doc.exists) {
-            debugPrint('⚠️ Document utilisateur non trouvé pour ${_user!.uid}');
+            debugPrint(
+              '⚠️ [Stream] Document utilisateur non trouvé pour ${_user!.uid}',
+            );
             return null;
           }
 
           try {
             // Parser le UserModel
-            _userModel = UserModel.fromDocument(doc);
+            final parsedModel = UserModel.fromDocument(doc);
+            debugPrint(
+              '🔍 [Stream] UserModel stream mis à jour: rôle=${parsedModel.role}, status=${parsedModel.status}',
+            );
 
-            // Notifier les listeners seulement si changement réel (évite loop)
-            if (_isRefreshing) {
-              _isRefreshing = false;
-            } else {
+            // Mettre à jour seulement si différent (évite notify excessif)
+            if (_userModel?.uid != parsedModel.uid ||
+                _userModel?.role != parsedModel.role) {
+              _userModel = parsedModel;
               notifyListeners();
             }
 
             return _userModel;
           } catch (e) {
-            debugPrint('❌ Erreur parsing UserModel: $e');
+            debugPrint('❌ [Stream] Erreur parsing UserModel: $e');
             return null;
           }
         })
         .handleError((error) {
-          debugPrint('❌ Erreur stream userModel: $error');
+          debugPrint('❌ [Stream] Erreur stream userModel: $error');
+          // Ne pas crasher le stream - retourner null
           return null;
         });
   }
 
   // =====================================================
-  // CONSTRUCTEUR
+  // CONSTRUCTEUR - Amélioré avec écoute du stream
   // =====================================================
   AppAuthProvider() {
     // Écouter les changements d'authentification
     _auth.authStateChanges().listen((User? user) {
+      debugPrint(
+        '🔍 [Constructor] Changement auth: user=${user?.uid ?? "null"}',
+      );
       _user = user;
       if (user == null) {
         _userModel = null;
+        _isLoadingUserModel = false;
+      } else {
+        // Démarrer le chargement du userModel async
+        _loadUserModel();
       }
       notifyListeners();
     });
   }
 
+  // Méthode helper pour charger userModel (appelée après auth change)
+  Future<void> _loadUserModel() async {
+    if (_user == null || _isLoadingUserModel) return;
+    _isLoadingUserModel = true;
+    notifyListeners(); // Indiquer chargement en cours
+
+    try {
+      debugPrint('🔍 [_loadUserModel] Chargement pour UID: ${_user!.uid}');
+      final doc = await _firestore.collection('users').doc(_user!.uid).get();
+
+      if (!doc.exists) {
+        debugPrint(
+          '⚠️ [_loadUserModel] Doc non trouvé - Créer un user par défaut ?',
+        );
+        _userModel = null;
+      } else {
+        _userModel = UserModel.fromDocument(doc);
+        debugPrint(
+          '🔍 [_loadUserModel] Chargé: rôle=${_userModel!.role}, status=${_userModel!.status}',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [_loadUserModel] Erreur: $e');
+      _userModel = null;
+    } finally {
+      _isLoadingUserModel = false;
+      notifyListeners();
+    }
+  }
+
   // =====================================================
-  // CONNEXION
+  // CONNEXION - Améliorée avec chargement async et debug
   // =====================================================
   Future<void> signIn(String email, String password) async {
     try {
@@ -86,20 +137,18 @@ class AppAuthProvider with ChangeNotifier {
       );
 
       _user = userCredential.user;
+      debugPrint('🔍 [signIn] Auth OK - UID: ${_user!.uid}');
 
       if (_user != null) {
-        // Étape 2: Récupérer les données utilisateur depuis Firestore
-        final doc = await _firestore.collection('users').doc(_user!.uid).get();
+        // Étape 2: Charger userModel async (au lieu de get() direct)
+        await _loadUserModel();
 
-        if (!doc.exists) {
+        if (_userModel == null) {
           await signOut();
           throw Exception('Utilisateur non trouvé dans la base de données');
         }
 
-        // Étape 3: Parser le UserModel
-        _userModel = UserModel.fromDocument(doc);
-
-        // Étape 4: Vérifier le statut
+        // Étape 3: Vérifier le statut
         if (_userModel!.status != 'approved') {
           await signOut();
           throw Exception(
@@ -107,10 +156,12 @@ class AppAuthProvider with ChangeNotifier {
           );
         }
 
-        // Étape 5: Rafraîchir le token pour propager les custom claims
+        // Étape 4: Rafraîchir le token pour propager les custom claims
         await _user!.getIdToken(true);
 
-        debugPrint('✅ Connexion réussie pour: ${_userModel!.email}');
+        debugPrint(
+          '✅ Connexion réussie pour: ${_userModel!.email} - Rôle: ${_userModel!.role}',
+        );
       }
 
       notifyListeners();
@@ -142,15 +193,18 @@ class AppAuthProvider with ChangeNotifier {
           message = 'Erreur de connexion: ${e.message}';
       }
 
+      // Nettoyer en cas d'erreur
+      await signOut();
       throw Exception(message);
     } catch (e) {
       debugPrint('❌ Erreur connexion: $e');
+      await signOut(); // Nettoyer
       throw Exception('Erreur de connexion: $e');
     }
   }
 
   // =====================================================
-  // INSCRIPTION
+  // INSCRIPTION - Améliorée avec debug
   // =====================================================
   Future<void> signUp({
     required String email,
@@ -160,7 +214,7 @@ class AppAuthProvider with ChangeNotifier {
     required String role,
   }) async {
     try {
-      debugPrint('📝 Tentative d\'inscription pour: $email');
+      debugPrint('📝 Tentative d\'inscription pour: $email - Rôle: $role');
 
       // Étape 1: Créer l'utilisateur dans Firebase Auth
       final userCredential = await _auth.createUserWithEmailAndPassword(
@@ -169,6 +223,7 @@ class AppAuthProvider with ChangeNotifier {
       );
 
       _user = userCredential.user;
+      debugPrint('🔍 [signUp] Auth créée - UID: ${_user!.uid}');
 
       if (_user != null) {
         // Étape 2: Créer le document Firestore
@@ -190,11 +245,10 @@ class AppAuthProvider with ChangeNotifier {
             .set(userModel.toMap());
 
         _userModel = userModel;
+        debugPrint('✅ [signUp] Inscription réussie - Status: pending');
 
-        debugPrint('✅ Inscription réussie pour: $email');
+        notifyListeners();
       }
-
-      notifyListeners();
     } on FirebaseAuthException catch (e) {
       debugPrint('❌ Erreur FirebaseAuth inscription: ${e.code}');
 
@@ -216,6 +270,7 @@ class AppAuthProvider with ChangeNotifier {
       // Nettoyer si échec
       if (_user != null) {
         await _user!.delete();
+        debugPrint('🧹 [signUp] User supprimé suite à échec');
       }
 
       throw Exception(message);
@@ -232,13 +287,14 @@ class AppAuthProvider with ChangeNotifier {
   }
 
   // =====================================================
-  // DÉCONNEXION
+  // DÉCONNEXION - Sans changement
   // =====================================================
   Future<void> signOut() async {
     try {
       await _auth.signOut();
       _user = null;
       _userModel = null;
+      _isLoadingUserModel = false;
       debugPrint('✅ Déconnexion réussie');
       notifyListeners();
     } catch (e) {
@@ -248,32 +304,51 @@ class AppAuthProvider with ChangeNotifier {
   }
 
   // =====================================================
-  // RAFRAÎCHIR LE USERMODEL (avec flag pour éviter loop)
+  // RAFRAÎCHIR LE USERMODEL - Amélioré pour éviter loops
   // =====================================================
   Future<UserModel?> refreshUserModel() async {
-    if (_user == null) return null;
+    if (_user == null) {
+      debugPrint('⚠️ [refresh] Pas d\'user pour rafraîchir');
+      return null;
+    }
 
-    if (_isRefreshing) return _userModel; // Évite loop
+    if (_isRefreshing) {
+      debugPrint('⏳ [refresh] Déjà en cours - Skip');
+      return _userModel;
+    }
     _isRefreshing = true;
 
     try {
+      debugPrint('🔄 [refresh] Rafraîchissement pour UID: ${_user!.uid}');
       final doc = await _firestore.collection('users').doc(_user!.uid).get();
 
       if (doc.exists) {
         final newModel = UserModel.fromDocument(doc);
-        if (newModel != _userModel) {
-          // Notify seulement si changement
+        if (_userModel?.uid != newModel.uid ||
+            _userModel?.role != newModel.role ||
+            _userModel?.status != newModel.status) {
           _userModel = newModel;
+          debugPrint(
+            '🔍 [refresh] Changement détecté: nouveau rôle=${_userModel!.role}',
+          );
           notifyListeners();
+        } else {
+          debugPrint('ℹ️ [refresh] Pas de changement');
         }
-        debugPrint('✅ UserModel rafraîchi');
         return _userModel;
+      } else {
+        debugPrint('⚠️ [refresh] Doc non trouvé');
       }
     } catch (e) {
-      debugPrint('❌ Erreur rafraîchissement: $e');
+      debugPrint('❌ [refresh] Erreur: $e');
     } finally {
       _isRefreshing = false;
     }
     return _userModel;
+  }
+
+  // Méthode publique pour forcer le re-load (utile pour debug post-login)
+  Future<void> forceReloadUserModel() async {
+    await _loadUserModel();
   }
 }

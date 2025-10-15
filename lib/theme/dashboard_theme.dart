@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 
-class DashboardTheme {
+class AppTheme {
   static ThemeData get theme => ThemeData(
     primarySwatch: Colors.blue,
     scaffoldBackgroundColor: Colors.grey[100],
-    // Correction : CardTheme -> CardThemeData
     cardTheme: CardThemeData(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
       margin: EdgeInsets.zero,
-      color: Colors.white,
     ),
     appBarTheme: const AppBarTheme(
       elevation: 0,
