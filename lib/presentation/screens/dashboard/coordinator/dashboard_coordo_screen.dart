@@ -1,13 +1,10 @@
 import 'dart:async';
-import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -15,7 +12,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:madaurore/core/constants/app_colors.dart';
 import 'package:madaurore/data/repositories/app_auth_provider.dart';
 import 'package:madaurore/data/models/request_model.dart';
-import 'package:madaurore/data/models/user_model.dart';
 import 'package:madaurore/services/firestore_service.dart';
 import 'package:madaurore/widgets/common/custom_button.dart';
 import 'package:madaurore/widgets/common/custom_card.dart';
