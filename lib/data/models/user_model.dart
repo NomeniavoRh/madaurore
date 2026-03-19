@@ -9,6 +9,7 @@ class UserModel {
   final String status; // 'pending', 'approved', 'rejected'
   final DateTime createdAt;
   final String? photoUrl;
+   final String? memberStatus;
 
   UserModel({
     required this.uid,
@@ -19,6 +20,7 @@ class UserModel {
     required this.status,
     required this.createdAt,
     this.photoUrl,
+    this.memberStatus,
   });
 
   // =====================================================
@@ -58,6 +60,7 @@ class UserModel {
 
       // Photo (peut être null)
       photoUrl: map['photoUrl'] as String?,
+      memberStatus: map['memberStatus'] as String? ?? 'new_member',
     );
   }
 
@@ -109,6 +112,7 @@ class UserModel {
       'createdAt': Timestamp.fromDate(createdAt),
       'photoUrl': photoUrl,
       'updatedAt': FieldValue.serverTimestamp(),
+      'memberStatus': memberStatus,
     };
   }
 
@@ -120,6 +124,7 @@ class UserModel {
     String? status,
     DateTime? createdAt,
     String? photoUrl,
+    String? memberStatus,
   }) {
     return UserModel(
       uid: uid,
@@ -130,6 +135,7 @@ class UserModel {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       photoUrl: photoUrl ?? this.photoUrl,
+      memberStatus: memberStatus ?? this.memberStatus,
     );
   }
 

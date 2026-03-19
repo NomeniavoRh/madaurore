@@ -1,6 +1,6 @@
-import 'dart:async'; // Fix: Import pour StreamSubscription
+import 'dart:async'; 
 import 'dart:io' show File;
-import 'dart:typed_data'; // Pour Uint8List PDF
+import 'dart:typed_data'; 
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -8,9 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:pdf/pdf.dart'; // Pour génération PDF
-import 'package:pdf/widgets.dart' as pw; // Widgets PDF
-import 'package:printing/printing.dart'; // Pour sauvegarde/partage PDF
+import 'package:pdf/pdf.dart'; 
+import 'package:pdf/widgets.dart' as pw; 
+import 'package:printing/printing.dart'; 
 import 'package:madaurore/core/constants/app_colors.dart';
 import 'package:madaurore/data/repositories/app_auth_provider.dart';
 import 'package:madaurore/data/models/request_model.dart';
@@ -407,12 +407,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                     CustomButton(
                       text: 'Nouvelle demande',
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const RequestSubmitScreen(),
-                          ),
-                        );
+                        Navigator.push(context, MaterialPageRoute(builder: (context) => const RequestSubmitScreen()));
                       },
                     ),
                     const SizedBox(height: 12),
