@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:madaurore/core/utils/region_utils.dart';
 import '../models/user_model.dart';
 
 class AppAuthProvider with ChangeNotifier {
@@ -49,8 +49,7 @@ class AppAuthProvider with ChangeNotifier {
               '[Stream] UserModel stream mis à jour: rôle=${parsedModel.role}, status=${parsedModel.status}',
             );
 
-            if (_userModel?.uid != parsedModel.uid ||
-                _userModel?.role != parsedModel.role) {
+            if (!_isSameUserModel(_userModel, parsedModel)) {
               _userModel = parsedModel;
               notifyListeners();
             }
@@ -81,6 +80,58 @@ class AppAuthProvider with ChangeNotifier {
       }
       notifyListeners();
     });
+  }
+
+  bool _isSameUserModel(UserModel? left, UserModel right) {
+    return left != null &&
+        left.uid == right.uid &&
+        left.email == right.email &&
+        left.fullName == right.fullName &&
+        left.region == right.region &&
+        left.role == right.role &&
+        left.status == right.status &&
+        left.photoUrl == right.photoUrl &&
+        left.memberStatus == right.memberStatus;
+  }
+
+  bool _shouldRetryFirestoreRead(FirebaseException error) {
+    if (kIsWeb && error.code == 'permission-denied') {
+      return true;
+    }
+
+    return const {
+      'aborted',
+      'cancelled',
+      'deadline-exceeded',
+      'internal',
+      'unavailable',
+      'unknown',
+    }.contains(error.code);
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>> _readUserDocumentWithRetry(
+    String uid,
+  ) async {
+    FirebaseException? lastFirebaseError;
+
+    for (var attempt = 0; attempt < 4; attempt++) {
+      try {
+        return await _firestore.collection('users').doc(uid).get();
+      } on FirebaseException catch (e) {
+        lastFirebaseError = e;
+        if (!_shouldRetryFirestoreRead(e) || attempt == 3) {
+          rethrow;
+        }
+
+        final delay = Duration(milliseconds: 600 * (attempt + 1));
+        debugPrint(
+          '[Auth] Lecture profil échouée (${e.code}), nouvel essai dans ${delay.inMilliseconds} ms',
+        );
+        await Future.delayed(delay);
+      }
+    }
+
+    throw lastFirebaseError ?? Exception('Lecture profil impossible');
   }
 
   /// ✅ CORRIGÉ: Évite les appels multiples simultanées
@@ -126,21 +177,7 @@ class AppAuthProvider with ChangeNotifier {
 
       debugPrint('[_performLoadUserModel] Chargement pour UID: $currentUid');
 
-      DocumentSnapshot doc;
-      try {
-        doc = await _firestore.collection('users').doc(currentUid).get();
-      } on FirebaseException catch (e) {
-        // Gestion spéciale pour les erreurs web
-        if (e.code == 'permission-denied' && kIsWeb) {
-          debugPrint(
-            '[_performLoadUserModel] Permission-denied détecté sur web → retry après 1.5s',
-          );
-          await Future.delayed(const Duration(milliseconds: 1500));
-          doc = await _firestore.collection('users').doc(currentUid).get();
-        } else {
-          rethrow;
-        }
-      }
+      final doc = await _readUserDocumentWithRetry(currentUid);
 
       // Vérification: l'utilisateur n'est pas déconnecté entre temps
       if (_user == null || _user!.uid != currentUid) {
@@ -222,19 +259,18 @@ class AppAuthProvider with ChangeNotifier {
           debugPrint('[signIn] ⚠️ Compte status=${_userModel!.status}');
           await signOut();
 
+          String errorMessage;
           if (_userModel!.status == 'pending') {
-            throw Exception(
-              'Compte en attente d\'approbation par un administrateur',
-            );
+            errorMessage =
+                'Compte en attente d\'approbation par un administrateur';
           } else if (_userModel!.status == 'rejected') {
-            throw Exception(
-              'Votre compte a été rejeté. Contactez un administrateur',
-            );
+            errorMessage =
+                'Votre compte a été rejeté. Contactez un administrateur';
           } else {
-            throw Exception(
-              'Votre compte n\'est pas disponible (status: ${_userModel!.status})',
-            );
+            errorMessage =
+                'Votre compte n\'est pas disponible (status: ${_userModel!.status})';
           }
+          throw Exception(errorMessage);
         }
 
         debugPrint(
@@ -278,8 +314,43 @@ class AppAuthProvider with ChangeNotifier {
       throw Exception(message);
     } catch (e) {
       debugPrint('❌ [signIn] Erreur inattendue: $e');
-      await signOut();
+      // Éviter double appel à signOut si déjà déconnecté
+      if (_user != null) {
+        await signOut();
+      }
       rethrow;
+    }
+  }
+
+  /// Envoie un email Firebase Auth pour reinitialiser le mot de passe.
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+    } on FirebaseAuthException catch (e) {
+      debugPrint('❌ [sendPasswordResetEmail] FirebaseAuthException: ${e.code}');
+
+      String message;
+      switch (e.code) {
+        case 'invalid-email':
+          message = 'Email invalide';
+          break;
+        case 'user-not-found':
+          message = 'Aucun compte trouvé avec cet email';
+          break;
+        case 'missing-email':
+          message = 'Email requis';
+          break;
+        case 'too-many-requests':
+          message = 'Trop de demandes. Réessayez plus tard';
+          break;
+        default:
+          message = 'Erreur envoi email: ${e.message}';
+      }
+
+      throw Exception(message);
+    } catch (e) {
+      debugPrint('❌ [sendPasswordResetEmail] Erreur inattendue: $e');
+      throw Exception('Erreur envoi email: $e');
     }
   }
 
@@ -315,12 +386,14 @@ class AppAuthProvider with ChangeNotifier {
           uid: _user!.uid,
           email: email.trim(),
           fullName: fullName.trim(),
-          region: region,
+          region: RegionUtils.normalize(region),
           role: role,
           status: 'pending', // Attendre approbation admin
           createdAt: DateTime.now(),
           photoUrl: null,
-          memberStatus: 'new_member',
+          memberStatus: UserModel.normalizeRole(role) == 'student'
+              ? 'nouveau_membre'
+              : null,
         );
 
         await _firestore
@@ -423,15 +496,13 @@ class AppAuthProvider with ChangeNotifier {
         '🔄 [refreshUserModel] Rafraîchissement pour UID: ${_user!.uid}',
       );
 
-      final doc = await _firestore.collection('users').doc(_user!.uid).get();
+      final doc = await _readUserDocumentWithRetry(_user!.uid);
 
       if (doc.exists && doc.data() != null) {
         final newModel = UserModel.fromDocument(doc);
 
         // Vérifier s'il y a eu des changements
-        if (_userModel?.uid != newModel.uid ||
-            _userModel?.role != newModel.role ||
-            _userModel?.status != newModel.status) {
+        if (!_isSameUserModel(_userModel, newModel)) {
           _userModel = newModel;
           debugPrint(
             '🔍 [refreshUserModel] Changement détecté: '
@@ -463,4 +534,3 @@ class AppAuthProvider with ChangeNotifier {
     await _loadUserModel();
   }
 }
-    

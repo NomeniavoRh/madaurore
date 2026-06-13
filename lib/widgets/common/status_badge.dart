@@ -14,7 +14,10 @@ class StatusBadge extends StatelessWidget {
     final s = status.toLowerCase();
     Color bg;
     Color textColor;
-    if (s.contains('accepted') || s.contains('valid')) {
+    if (s.contains('accepted') ||
+        s.contains('approved') ||
+        s.contains('approuv') ||
+        s.contains('valid')) {
       bg = _withOpacity(AppColors.success, 0.12);
       textColor = AppColors.success;
     } else if (s.contains('rejected') || s.contains('refus')) {

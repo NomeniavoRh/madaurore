@@ -32,25 +32,9 @@
   <title>madaurore</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
-
-  <!-- Firebase Configuration -->
-  <script>
-    const firebaseConfig = {
-    apiKey: 'AIzaSyBXRr5o_0Jkx8BmBxBOqkqSFPkwMpIkupw',
-    appId: '1:7341965061:web:d39ab3d6ab92730268016c',
-    messagingSenderId: '7341965061',
-    projectId: 'madaction-aeaea',
-    authDomain: 'madaction-aeaea.firebaseapp.com',
-    storageBucket: 'madaction-aeaea.firebasestorage.app',
-    };
-    firebase.initializeApp(firebaseConfig);
-  </script>
+  <!-- Firebase SDK - Configuration gérée par Flutter (firebase_options.dart) -->
+  <!-- Ne pas initialiser Firebase ici : Flutter le gère automatiquement -->
+  <meta property="firebase:configured" content="true"/>
 
 </head>
 <body>

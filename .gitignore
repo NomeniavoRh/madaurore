@@ -39,6 +39,17 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# 🔐 SECURITY: Debug info for Flutter Web builds (NEVER commit)
+build/web_debug_info/
+build/web/*.map
+build/web/flutter_service_worker.js.map
+*.map.json
+
+# 🔐 SECURITY: Firebase sensitive files
+.env
+.env.local
+lib/firebase_options_prod.dart
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

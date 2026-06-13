@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:madaurore/core/utils/region_utils.dart';
 
 class ValidationRequestModel {
   final String id;
@@ -43,8 +44,8 @@ class ValidationRequestModel {
     return ValidationRequestModel(
       id: map['id'] as String? ?? '',
       email: map['email'] as String? ?? '',
-      region: map['region'] as String? ?? '',
-      statut: map['statut'] as String? ?? 'en attente',
+      region: RegionUtils.normalize(map['region'] as String?),
+      statut: map['statut'] as String? ?? 'pending',
       createdAt: createdAt,
       updatedAt: updatedAt,
       requestId: map['requestId'] as String?,
@@ -53,16 +54,13 @@ class ValidationRequestModel {
 
   factory ValidationRequestModel.fromDocument(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-    return ValidationRequestModel.fromMap({
-      'id': doc.id,
-      ...data,
-    });
+    return ValidationRequestModel.fromMap({'id': doc.id, ...data});
   }
 
   Map<String, dynamic> toMap() {
     return {
       'email': email,
-      'region': region,
+      'region': RegionUtils.normalize(region),
       'statut': statut,
       'createdAt': createdAt,
       'updatedAt': updatedAt,

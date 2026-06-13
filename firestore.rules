@@ -1,8 +1,325 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
+
+    // =====================================================
+    // HELPER FUNCTIONS
+    // =====================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isApproved() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status in [
+        'approved',
+        'active',
+        'actif'
+      ];
+    }
+
+    function hasRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function getUserRegion() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.region;
+    }
+
+    function isToliaraVariant(region) {
+      return region in ['Toliara', 'Tuléar', 'Tulear'];
+    }
+
+    function sameRegion(region) {
+      return region == getUserRegion() ||
+             (isToliaraVariant(region) && isToliaraVariant(getUserRegion()));
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isCoordinator() {
+      return hasRole('regional_coordinator');
+    }
+
+    function isCouncil() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in [
+        'Conseil_Administratif',
+        'Conseil Administratif',
+        'Conseil_Admin',
+        'Conseil Admin',
+        'conseil_admin',
+        'council',
+        'council_admin'
+      ];
+    }
+
+    function isStudent() {
+      return hasRole('student');
+    }
+
+    function hasOnlyChangedFields(allowedFields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
+    }
+
+    // =====================================================
+    // USERS COLLECTION
+    // =====================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+                      request.auth.uid == userId ||
+                      isAdmin() ||
+                      (isApproved() && isCouncil()) ||
+                      (isApproved() && isCoordinator() &&
+                       sameRegion(resource.data.region))
+                    );
+
+      allow create: if isAuthenticated() &&
+                       request.auth.uid == userId &&
+                       request.resource.data.status == 'pending' &&
+                       request.resource.data.role in [
+                         'student',
+                         'regional_coordinator',
+                         'Conseil_Administratif'
+                       ];
+
+      allow update: if isAuthenticated() && (
+                       (request.auth.uid == userId &&
+                        resource.data.role == request.resource.data.role &&
+                        resource.data.status == request.resource.data.status) ||
+                       (isApproved() &&
+                        isCoordinator() &&
+                        resource.data.role == 'student' &&
+                        sameRegion(resource.data.region) &&
+                        request.resource.data.role == resource.data.role &&
+                        request.resource.data.status == resource.data.status &&
+                        hasOnlyChangedFields(['memberStatus', 'updatedAt'])) ||
+                       isAdmin()
+                     );
+
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // STUDENT PROFILES COLLECTION
+    // =====================================================
+    match /student_profiles/{userId} {
+      allow read: if isAuthenticated() && isApproved() && (
+                      request.auth.uid == userId ||
+                      isCoordinator() ||
+                      isAdmin() ||
+                      isCouncil()
+                    );
+
+      allow create: if isAuthenticated() &&
+                       isApproved() &&
+                       isStudent() &&
+                       request.auth.uid == userId;
+
+      allow update: if isAuthenticated() && isApproved() && (
+                       request.auth.uid == userId ||
+                       isAdmin()
+                     );
+
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // REQUESTS COLLECTION
+    // =====================================================
+    match /requests/{requestId} {
+      allow read: if isAuthenticated() && isApproved() && (
+                      request.auth.uid == resource.data.userId ||
+                      (isCoordinator() && sameRegion(resource.data.region)) ||
+                      isAdmin() ||
+                      isCouncil()
+                    );
+
+      allow create: if isAuthenticated() &&
+                       isApproved() &&
+                       isStudent() &&
+                       request.auth.uid == request.resource.data.userId &&
+                       request.resource.data.statut == 'pending' &&
+                       request.resource.data.region != null;
+
+      allow update: if isAuthenticated() && isApproved() && (
+                       (request.auth.uid == resource.data.userId &&
+                        resource.data.statut == 'pending' &&
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.statut == resource.data.statut &&
+                        hasOnlyChangedFields([
+                          'titre', 'reason', 'localisation', 'pdfUrl',
+                          'montant', 'studentBio', 'updatedAt'
+                        ])) ||
+                       (request.auth.uid == resource.data.userId &&
+                        resource.data.statut == 'approved_council' &&
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.statut == resource.data.statut &&
+                        hasOnlyChangedFields(['justificationUrl', 'updatedAt'])) ||
+                       (isCoordinator() &&
+                        sameRegion(resource.data.region) &&
+                        (
+                          hasOnlyChangedFields([
+                            'coordoNotes', 'coordoNotesAt', 'coordoNotesBy',
+                            'memberStatus', 'studentBio', 'bioModifiedBy',
+                            'bioModifiedAt', 'updatedAt'
+                          ]) ||
+                          (
+                            resource.data.statut == 'pending' &&
+                            request.resource.data.statut == 'rejected' &&
+                            hasOnlyChangedFields(['statut', 'reason', 'updatedAt'])
+                          )
+                        )) ||
+                       isAdmin() ||
+                       (isCouncil() &&
+                        request.resource.data.statut in ['approved_council', 'rejected'] &&
+                        hasOnlyChangedFields([
+                          'statut', 'montantAccorde', 'conseilValidatedAt',
+                          'conseilValidatedBy', 'reason', 'updatedAt'
+                        ]))
+                     );
+
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // SPONSORSHIP REQUESTS COLLECTION
+    // =====================================================
+    match /sponsorship_requests/{requestId} {
+      allow read: if isAuthenticated() && isApproved() && (
+                      request.auth.uid == resource.data.userId ||
+                      (isCoordinator() && sameRegion(resource.data.region)) ||
+                      isAdmin() ||
+                      isCouncil()
+                    );
+
+      allow create: if isAuthenticated() &&
+                       isApproved() &&
+                       isStudent() &&
+                       request.auth.uid == request.resource.data.userId;
+
+      allow update: if isAuthenticated() && isApproved() && (
+                       (request.auth.uid == resource.data.userId &&
+                        resource.data.statut == 'pending' &&
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.statut == resource.data.statut &&
+                        hasOnlyChangedFields([
+                          'titre', 'familySituation', 'pdfUrl',
+                          'justificationUrl', 'updatedAt'
+                        ])) ||
+                       isAdmin() ||
+                       (isCouncil() &&
+                        request.resource.data.statut in ['approved_council', 'rejected'] &&
+                        hasOnlyChangedFields(['statut', 'reason', 'updatedAt'])) ||
+                       (isCoordinator() &&
+                        sameRegion(resource.data.region) &&
+                        hasOnlyChangedFields(['updatedAt']))
+                     );
+
+      allow delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // VALIDATION REQUESTS COLLECTION
+    // =====================================================
+    match /validation_requests/{validationId} {
+      allow read: if isAuthenticated() && isApproved() && (
+                      (isCoordinator() && sameRegion(resource.data.region)) ||
+                      isAdmin() ||
+                      isCouncil()
+                    );
+
+      allow create: if isAuthenticated() && isApproved() && (
+                        isCoordinator() ||
+                        isAdmin() ||
+                        (
+                          isStudent() &&
+                          request.resource.data.statut == 'pending' &&
+                          sameRegion(request.resource.data.region) &&
+                          request.resource.data.requestId is string &&
+                          exists(/databases/$(database)/documents/sponsorship_requests/$(request.resource.data.requestId)) &&
+                          get(/databases/$(database)/documents/sponsorship_requests/$(request.resource.data.requestId)).data.userId == request.auth.uid
+                        )
+                      );
+
+      allow update, delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // JUSTIFICATIONS COLLECTION
+    // =====================================================
+    match /justifications/{justificationId} {
+      allow read: if isAuthenticated() && isApproved() && (
+                      request.auth.uid == resource.data.userId ||
+                      (isCoordinator() && sameRegion(resource.data.region)) ||
+                      isAdmin() ||
+                      isCouncil()
+                    );
+
+      allow create: if isAuthenticated() &&
+                       isApproved() &&
+                       isStudent() &&
+                       request.auth.uid == request.resource.data.userId &&
+                       request.resource.data.keys().hasOnly([
+                         'requestId', 'userId', 'region', 'amount',
+                         'category', 'expenseDate', 'note', 'fileUrl',
+                         'fileName', 'fileSize', 'contentType', 'status',
+                         'createdAt', 'uploadAt', 'updatedAt'
+                       ]) &&
+                       request.resource.data.requestId is string &&
+                       exists(/databases/$(database)/documents/requests/$(request.resource.data.requestId)) &&
+                       get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.auth.uid &&
+                       get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.statut == 'approved_council' &&
+                       request.resource.data.region == get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.region &&
+                       request.resource.data.status == 'pending' &&
+                       request.resource.data.amount is number &&
+                       request.resource.data.amount > 0 &&
+                       request.resource.data.fileUrl is string &&
+                       request.resource.data.fileName is string;
+
+      allow update: if isAuthenticated() && isApproved() && (
+                       (isAdmin() ||
+                        isCouncil() ||
+                        (isCoordinator() && sameRegion(resource.data.region))) &&
+                       request.resource.data.status in [
+                         'approved',
+                         'rejected',
+                         'needs_correction'
+                       ] &&
+                       request.resource.data.reviewedBy == request.auth.uid &&
+                       hasOnlyChangedFields([
+                         'status', 'reviewedBy', 'reviewerName',
+                         'reviewedAt', 'rejectionReason', 'updatedAt'
+                       ])
+                     );
+
+      allow delete: if isAuthenticated() && isApproved() && (
+                       isAdmin() ||
+                       (request.auth.uid == resource.data.userId &&
+                        resource.data.status in [
+                          'pending',
+                          'rejected',
+                          'needs_correction'
+                        ])
+                     );
+    }
+
+    // =====================================================
+    // REGIONS COLLECTION
+    // =====================================================
+    match /regions/{regionId} {
+      allow read: if isAuthenticated() && isApproved();
+
+      allow create, update, delete: if isAuthenticated() && isAdmin();
+    }
+
+    // =====================================================
+    // UPDATES (ANNOUNCEMENTS)
+    // =====================================================
+    match /updates/{document=**} {
+      allow read: if isAuthenticated() && isApproved();
+      allow write: if isAdmin();
     }
   }
 }

@@ -1,22 +1,21 @@
-import 'dart:async'; 
-import 'dart:io' show File;
-import 'dart:typed_data'; 
+import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:pdf/pdf.dart'; 
-import 'package:pdf/widgets.dart' as pw; 
-import 'package:printing/printing.dart'; 
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:madaurore/core/constants/app_colors.dart';
 import 'package:madaurore/data/repositories/app_auth_provider.dart';
+import 'package:madaurore/data/repositories/request_repository.dart';
 import 'package:madaurore/data/models/request_model.dart';
 import 'package:madaurore/data/models/user_model.dart';
 import 'package:madaurore/presentation/screens/dashboard/student/justification_upload_screen.dart';
 import 'package:madaurore/presentation/screens/dashboard/student/request_submit_screen.dart';
+import 'package:madaurore/presentation/screens/dashboard/student/student_bio_edit_screen.dart';
 import 'package:madaurore/widgets/common/custom_button.dart';
 import 'package:madaurore/widgets/common/custom_card.dart';
 import 'package:madaurore/widgets/common/status_badge.dart';
@@ -31,9 +30,11 @@ class DashboardStudentScreen extends StatefulWidget {
 }
 
 class DashboardStudentScreenState extends State<DashboardStudentScreen> {
+  final RequestRepository _requestRepository = RequestRepository();
   final TextEditingController _updateContentController =
       TextEditingController();
-  bool _isLoading = false;
+  final bool _isLoading = false;
+  bool _redirectScheduled = false;
   StreamSubscription<QuerySnapshot>?
   _requestsSubscription; // Gère subscription pour dispose
 
@@ -41,19 +42,25 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final auth = Provider.of<AppAuthProvider>(context, listen: false);
-      if (auth.userModel?.role != 'student' ||
-          auth.userModel?.status != 'approved') {
-        Navigator.pushReplacementNamed(context, '/login');
-      }
       _loadLastUpdateDate();
+    });
+  }
+
+  void _redirectToLogin() {
+    if (_redirectScheduled || !mounted) return;
+    _redirectScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/login');
     });
   }
 
   Future<void> _loadLastUpdateDate() async {
     final auth = Provider.of<AppAuthProvider>(context, listen: false);
     final user = auth.user;
-    if (user != null) {
+    final userModel = auth.userModel;
+
+    if (user != null && userModel != null) {
       try {
         final doc = await FirebaseFirestore.instance
             .collection('updates')
@@ -61,67 +68,62 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
             .orderBy('date', descending: true)
             .limit(1)
             .get();
+        // Juste pour logger, pas besoin de setState si vide
         if (doc.docs.isNotEmpty) {
-          setState(() {});
-        } else {
-          setState(() {});
+          debugPrint('📢 Dernière update: ${doc.docs.first.data()}');
         }
       } catch (e) {
         debugPrint('Erreur loadLastUpdateDate: $e');
-        setState(() {});
+        // Ignore silencieusement - pas critique
       }
     }
   }
 
-  Future<void> _uploadJustification() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf'],
-    );
-    if (result != null && result.files.single.path != null) {
-      final file = File(result.files.single.path!);
-      if (await file.length() > 10 * 1024 * 1024) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Fichier trop volumineux, maximum 10 Mo'),
-            ),
-          );
-        }
-        return;
-      }
-      setState(() => _isLoading = true);
-      final auth = Provider.of<AppAuthProvider>(context, listen: false);
-      final user = auth.user;
-      if (user != null) {
-        try {
-          final storageRef = FirebaseStorage.instance.ref().child(
-            'justifications/${user.uid}/${result.files.single.name}',
-          );
-          await storageRef.putFile(file);
-          final url = await storageRef.getDownloadURL();
-          await FirebaseFirestore.instance.collection('justifications').add({
-            'userId': user.uid,
-            'url': url,
-            'uploadedAt': Timestamp.now(),
-            'region': auth.userModel?.region,
-          });
-          setState(() => _isLoading = false);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Justificatif envoyé')),
-            );
-          }
-        } catch (e) {
-          setState(() => _isLoading = false);
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Erreur upload: $e')));
-          }
-        }
-      }
+  Future<void> _openJustificationUpload(List<RequestModel> requests) async {
+    final eligibleRequests = requests
+        .where((request) => request.isApprouveConseil)
+        .toList();
+
+    if (eligibleRequests.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Les justificatifs peuvent être envoyés après validation du Conseil',
+          ),
+        ),
+      );
+      return;
     }
+
+    RequestModel? selectedRequest;
+    if (eligibleRequests.length == 1) {
+      selectedRequest = eligibleRequests.first;
+    } else {
+      selectedRequest = await showDialog<RequestModel>(
+        context: context,
+        builder: (context) => SimpleDialog(
+          title: const Text('Choisir la demande'),
+          children: eligibleRequests
+              .map(
+                (request) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(context, request),
+                  child: Text(request.titre),
+                ),
+              )
+              .toList(),
+        ),
+      );
+    }
+
+    if (!mounted || selectedRequest == null) return;
+    final request = selectedRequest;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => JustificationUploadScreen(requestId: request.id),
+      ),
+    );
   }
 
   // Fonction PDF export (limit pour mémoire)
@@ -245,25 +247,12 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
         if (userModel == null ||
             userModel.role != 'student' ||
             userModel.status != 'approved') {
+          _redirectToLogin();
           return const Scaffold(body: Center(child: Text('Accès refusé')));
         }
 
         return StreamBuilder<List<RequestModel>>(
-          stream: FirebaseFirestore.instance
-              .collection('requests')
-              .where('userId', isEqualTo: user.uid)
-              .orderBy('createdAt', descending: true)
-              .limit(20) // Limit pour mémoire
-              .snapshots()
-              .map(
-                (snapshot) => snapshot.docs
-                    .map((doc) => RequestModel.fromDocument(doc))
-                    .toList(),
-              )
-              .handleError((e) {
-                debugPrint('❌ Erreur requestsStream: $e');
-                return Stream.value(<RequestModel>[]); // Fallback vide
-              }),
+          stream: _requestRepository.getUserRequestsStream(user.uid, limit: 50),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -363,7 +352,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                         itemBuilder: (context, index) {
                           final request = requests[index];
                           return GestureDetector(
-                            onTap: request.statut == 'accepté'
+                            onTap: request.isApprouveConseil
                                 ? () {
                                     Navigator.push(
                                       context,
@@ -399,6 +388,19 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                         },
                       ),
                     const SizedBox(height: 32),
+                    // ✅ BOUTON: Ma Bio
+                    CustomButton(
+                      text: '📝 Ma Bio',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const StudentBioEditScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     CustomButton(
                       text: 'Exporter en PDF',
                       onPressed: () => _exportRequests(requests),
@@ -407,7 +409,12 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                     CustomButton(
                       text: 'Nouvelle demande',
                       onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => const RequestSubmitScreen()));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RequestSubmitScreen(),
+                          ),
+                        );
                       },
                     ),
                     const SizedBox(height: 12),
@@ -419,8 +426,8 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                     _isLoading
                         ? const CircularProgressIndicator()
                         : CustomButton(
-                            text: 'Envoyer justificatif',
-                            onPressed: _uploadJustification,
+                            text: '📎 Envoyer justificatif',
+                            onPressed: () => _openJustificationUpload(requests),
                           ),
                   ],
                 ),

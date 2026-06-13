@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:madaurore/core/utils/region_utils.dart';
 
 class SponsorshipRequestModel {
   final String id;
@@ -9,6 +10,8 @@ class SponsorshipRequestModel {
   final String? familySituation;
   final String userId;
   final String userEmail;
+  final String? pdfUrl;
+  final String? justificationUrl;
 
   SponsorshipRequestModel({
     required this.id,
@@ -19,8 +22,8 @@ class SponsorshipRequestModel {
     this.familySituation,
     required this.userId,
     required this.userEmail,
-    required String pdfUrl,
-    required String justificationUrl,
+    this.pdfUrl,
+    this.justificationUrl,
   });
 
   factory SponsorshipRequestModel.fromMap(Map<String, dynamic> map) {
@@ -37,13 +40,13 @@ class SponsorshipRequestModel {
       id: map['id'] as String? ?? '',
       titre: map['titre'] as String? ?? '',
       statut: map['statut'] as String? ?? 'pending',
-      region: map['region'] as String? ?? '',
+      region: RegionUtils.normalize(map['region'] as String?),
       createdAt: createdAt,
       familySituation: map['familySituation'] as String?,
       userId: map['userId'] as String? ?? '',
       userEmail: map['userEmail'] as String? ?? '',
-      pdfUrl: '',
-      justificationUrl: '',
+      pdfUrl: map['pdfUrl'] as String?,
+      justificationUrl: map['justificationUrl'] as String?,
     );
   }
 
@@ -57,11 +60,13 @@ class SponsorshipRequestModel {
       'id': id,
       'titre': titre,
       'statut': statut,
-      'region': region,
+      'region': RegionUtils.normalize(region),
       'createdAt': createdAt,
       'familySituation': familySituation,
       'userId': userId,
       'userEmail': userEmail,
+      'pdfUrl': pdfUrl,
+      'justificationUrl': justificationUrl,
     };
   }
 }

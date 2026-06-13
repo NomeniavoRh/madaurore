@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +15,11 @@ import 'presentation/screens/dashboard/coordinator/dashboard_coordo_screen.dart'
     as coordinator_screen;
 import 'presentation/screens/dashboard/student/dashboard_student_screen.dart';
 import 'presentation/screens/dashboard/conseil/dashboard_conseil_screen.dart';
+import 'presentation/screens/students/admin/student_list_admin_screen.dart';
+import 'presentation/screens/students/conseil/student_list_conseil_screen.dart';
+import 'presentation/screens/students/coordinator/student_list_coordinator_screen.dart';
+import 'presentation/screens/profile/profile_edit_screen.dart';
+import 'presentation/screens/members/member_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,24 +29,27 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    debugPrint('Firebase initialisé avec succès');
+    if (kDebugMode) {
+      debugPrint('Firebase initialisé avec succès');
+    }
 
-    // 2. Configuration Firestore pour Flutter Web (éviter bugs Listen/channel)
+    // 2. Configuration Firestore pour Flutter Web
     if (kIsWeb) {
-      // 🔥 CORRECTION : Ajout de cacheSizeBytes pour éviter les problèmes de mémoire
       FirebaseFirestore.instance.settings = const Settings(
         persistenceEnabled: true,
-        cacheSizeBytes: 1048576, // 1MB - suffisant pour la démo
+        cacheSizeBytes: 104857600,
       );
 
-      debugPrint(
-        'Firestore configuré pour Web → persistence activée (cache limité à 1MB)',
-      );
+      if (kDebugMode) {
+        debugPrint('Firestore configuré pour Web avec cache local (100MB)');
+      }
     }
 
     runApp(const MadactionApp());
   } catch (e) {
-    debugPrint('Erreur lors de l\'initialisation Firebase: $e');
+    if (kDebugMode) {
+      debugPrint('Erreur lors de l\'initialisation Firebase: $e');
+    }
     runApp(const ErrorApp());
   }
 }
@@ -67,12 +75,20 @@ class MadactionApp extends StatelessWidget {
         routes: {
           '/login': (context) => const LoginScreen(),
           '/admin/dashboard_admin': (context) => const DashboardAdminScreen(),
+          '/admin/member-list': (context) => const MemberListScreen(),
           '/coordinator/dashboard_coordo': (context) =>
               const coordinator_screen.DashboardCoordoScreen(),
+          '/coordinator/member-list': (context) => const MemberListScreen(),
           '/student/dashboard_student': (context) =>
               const DashboardStudentScreen(),
           '/conseil/dashboard_conseil': (context) =>
               const DashboardConseilScreen(),
+          '/admin/student-list': (context) => const StudentListAdminScreen(),
+          '/conseil/student-list': (context) =>
+              const StudentListConseilScreen(),
+          '/coordinator/student-list': (context) =>
+              const StudentListCoordinatorScreen(),
+          '/profile/edit': (context) => const ProfileEditScreen(),
         },
         onUnknownRoute: (settings) {
           return MaterialPageRoute(builder: (context) => const LoginScreen());

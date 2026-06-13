@@ -18,10 +18,10 @@ class FirebaseSetup {
       await _createAdminAccount();
       debugPrint('✅ === INITIALISATION TERMINÉE ===');
       debugPrint('');
-      debugPrint('📧 Compte Admin créé:');
-      debugPrint('   Email: admin@madaction.mg');
-      debugPrint('   Mot de passe: Admin@2024Secure!');
-      debugPrint('⚠️  CHANGEZ CE MOT DE PASSE IMMÉDIATEMENT!');
+      debugPrint('📧 Compte Admin créé');
+      debugPrint(
+        '⚠️  LES IDENTIFIANTS SONT AFFICHÉS EN CONSOLE - NE JAMAIS PUSHER CE FICHIER',
+      );
     } catch (e) {
       debugPrint('❌ Erreur d\'initialisation: $e');
       rethrow;

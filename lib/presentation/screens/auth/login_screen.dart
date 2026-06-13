@@ -34,20 +34,21 @@ class LoginScreenState extends State<LoginScreen> {
   static const List<String> roles = [
     'student',
     'regional_coordinator',
-    'admin',
+    'Conseil_Administratif',
   ];
 
   static const Map<String, String> roleLabels = {
     'student': 'Étudiant',
     'regional_coordinator': 'Coordinateur Régional',
     'admin': 'Administrateur',
+    'Conseil_Administratif': 'Conseil Administratif',
   };
 
   static const List<String> regions = [
     'Antananarivo',
     'Antsirabe',
     'Fianarantsoa',
-    'Tuléar',
+    'Toliara',
   ];
 
   @override
@@ -75,7 +76,9 @@ class LoginScreenState extends State<LoginScreen> {
     try {
       if (_isLogin) {
         // ===== MODE CONNEXION =====
-        debugPrint('🔍 [LoginScreen] Début connexion pour: ${_emailController.text.trim()}');
+        debugPrint(
+          '🔍 [LoginScreen] Début connexion pour: ${_emailController.text.trim()}',
+        );
         await auth.signIn(
           _emailController.text.trim(),
           _passwordController.text.trim(),
@@ -92,10 +95,14 @@ class LoginScreenState extends State<LoginScreen> {
 
         final userModel = auth.userModel;
 
-        debugPrint('🔍 [LoginScreen] userModel post-reload: rôle=${userModel?.role}, status=${userModel?.status}');
+        debugPrint(
+          '🔍 [LoginScreen] userModel post-reload: rôle=${userModel?.role}, status=${userModel?.status}',
+        );
 
         if (userModel == null) {
-          debugPrint('⚠️ [LoginScreen] userModel null après reload - Erreur fetch Firestore ?');
+          debugPrint(
+            '⚠️ [LoginScreen] userModel null après reload - Erreur fetch Firestore ?',
+          );
           throw Exception('Impossible de récupérer les données utilisateur');
         }
 
@@ -115,11 +122,15 @@ class LoginScreenState extends State<LoginScreen> {
         }
 
         // Navigation selon le rôle
-        debugPrint('🚀 [LoginScreen] Navigation vers dashboard pour rôle: ${userModel.role}');
+        debugPrint(
+          '🚀 [LoginScreen] Navigation vers dashboard pour rôle: ${userModel.role}',
+        );
         _navigateToRoleDashboard(userModel.role);
       } else {
         // ===== MODE INSCRIPTION =====
-        debugPrint('📝 [LoginScreen] Début inscription pour: ${_emailController.text.trim()}, rôle: $_selectedRole');
+        debugPrint(
+          '📝 [LoginScreen] Début inscription pour: ${_emailController.text.trim()}, rôle: $_selectedRole',
+        );
         await auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
@@ -148,7 +159,80 @@ class LoginScreenState extends State<LoginScreen> {
   }
 
   // =====================================================
-  // NAVIGATION SELON LE RÔLE - Sans changement
+  // MOT DE PASSE OUBLIE
+  // =====================================================
+  Future<void> _showForgotPasswordDialog() async {
+    FocusScope.of(context).unfocus();
+
+    final resetEmailController = TextEditingController(
+      text: _emailController.text.trim(),
+    );
+    final resetFormKey = GlobalKey<FormState>();
+
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lock_reset, color: AppColors.primary, size: 28),
+            SizedBox(width: 12),
+            Text('Mot de passe oublié'),
+          ],
+        ),
+        content: Form(
+          key: resetFormKey,
+          child: TextFormField(
+            controller: resetEmailController,
+            autofocus: true,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email du compte',
+              prefixIcon: Icon(Icons.email),
+            ),
+            validator: validators.validateEmail,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (resetFormKey.currentState?.validate() ?? false) {
+                Navigator.of(ctx).pop(resetEmailController.text.trim());
+              }
+            },
+            child: const Text('Envoyer'),
+          ),
+        ],
+      ),
+    );
+
+    resetEmailController.dispose();
+    if (email == null) return;
+    if (!mounted) return;
+
+    setState(() => _loading = true);
+
+    final auth = Provider.of<AppAuthProvider>(context, listen: false);
+
+    try {
+      await auth.sendPasswordResetEmail(email);
+      if (!mounted) return;
+      _showPasswordResetSuccessDialog(email);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorDialog(e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  // =====================================================
+  // NAVIGATION SELON LE ROLE
   // =====================================================
   void _navigateToRoleDashboard(String role) {
     String route;
@@ -159,6 +243,9 @@ class LoginScreenState extends State<LoginScreen> {
         break;
       case 'regional_coordinator':
         route = '/coordinator/dashboard_coordo';
+        break;
+      case 'Conseil_Administratif':
+        route = '/conseil/dashboard_conseil';
         break;
       default:
         route = '/student/dashboard_student';
@@ -264,6 +351,31 @@ class LoginScreenState extends State<LoginScreen> {
               setState(() => _isLogin = true);
             },
             child: const Text('Se connecter'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPasswordResetSuccessDialog(String email) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.mark_email_read, color: AppColors.success, size: 28),
+            SizedBox(width: 12),
+            Text('Email envoyé'),
+          ],
+        ),
+        content: Text(
+          'Un lien de réinitialisation a été envoyé à $email. '
+          'Ouvrez cet email puis choisissez un nouveau mot de passe.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
           ),
         ],
       ),
@@ -377,6 +489,20 @@ class LoginScreenState extends State<LoginScreen> {
                           ),
 
                           // Champs supplémentaires pour l'inscription
+                          if (_isLogin) ...[
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: _loading
+                                    ? null
+                                    : _showForgotPasswordDialog,
+                                icon: const Icon(Icons.lock_reset, size: 18),
+                                label: const Text('Mot de passe oublié ?'),
+                              ),
+                            ),
+                          ],
+
                           if (!_isLogin) ...[
                             const SizedBox(height: 16),
 
@@ -387,7 +513,8 @@ class LoginScreenState extends State<LoginScreen> {
                                 labelText: 'Nom complet',
                                 prefixIcon: Icon(Icons.person),
                               ),
-                              validator: (value) => value == null || value.isEmpty
+                              validator: (value) =>
+                                  value == null || value.isEmpty
                                   ? 'Nom complet requis'
                                   : null,
                               enabled: !_loading,
@@ -411,7 +538,8 @@ class LoginScreenState extends State<LoginScreen> {
                                   ? null
                                   : (value) {
                                       setState(
-                                        () => _selectedRole = value ?? 'student',
+                                        () =>
+                                            _selectedRole = value ?? 'student',
                                       );
                                     },
                             ),

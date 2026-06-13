@@ -8,8 +8,12 @@
 # The following line activates a set of recommended lints for Flutter apps,
 # packages, and plugins designed to encourage good coding practices.
 analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
   errors:
-    use_build_context_synchronously: ignore
+    # Activé pour détecter les bugs potentiels
+    use_build_context_synchronously: error
 include: package:flutter_lints/flutter.yaml
 
 linter:
