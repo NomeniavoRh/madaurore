@@ -461,7 +461,7 @@ class _DashboardConseilScreenState extends State<DashboardConseilScreen> {
                       ),
                     ),
                     icon: const Icon(Icons.receipt_long),
-                    label: const Text('Justificatifs de depenses'),
+                    label: const Text('Suivi de l\'aide'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.accent,
                       foregroundColor: AppColors.primary,

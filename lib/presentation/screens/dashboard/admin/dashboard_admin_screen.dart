@@ -5,7 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:madaurore/core/constants/app_colors.dart';
+import 'package:madaurore/core/utils/region_utils.dart';
 import 'package:madaurore/data/repositories/app_auth_provider.dart';
+import 'package:madaurore/data/repositories/fund_reception_repository.dart';
+import 'package:madaurore/data/repositories/justification_repository.dart';
 import 'package:madaurore/data/repositories/request_repository.dart';
 import 'package:madaurore/data/repositories/user_repository.dart';
 import 'package:madaurore/data/models/request_model.dart';
@@ -13,6 +16,7 @@ import 'package:madaurore/data/models/user_model.dart';
 import 'package:madaurore/presentation/screens/auth/login_screen.dart';
 import 'package:madaurore/presentation/screens/dashboard/student/justification_upload_screen.dart';
 import 'package:madaurore/presentation/screens/students/admin/student_list_admin_screen.dart';
+import 'package:madaurore/services/student_aid_summary_service.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -29,6 +33,10 @@ class DashboardAdminScreen extends StatefulWidget {
 class _DashboardAdminScreenState extends State<DashboardAdminScreen> {
   final RequestRepository _requestRepository = RequestRepository();
   final UserRepository _userRepository = UserRepository();
+  final JustificationRepository _justificationRepository =
+      JustificationRepository();
+  final FundReceptionRepository _fundReceptionRepository =
+      FundReceptionRepository();
 
   @override
   void initState() {
@@ -65,6 +73,63 @@ class _DashboardAdminScreenState extends State<DashboardAdminScreen> {
       // ignore
     }
     return null;
+  }
+
+  Future<UserModel?> _fetchCoordinatorForRegion(String region) async {
+    try {
+      final regions = RegionUtils.queryValues(region);
+      Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'regional_coordinator');
+      query = regions.length == 1
+          ? query.where('region', isEqualTo: regions.first)
+          : query.where('region', whereIn: regions);
+      final snapshot = await query.limit(1).get();
+      if (snapshot.docs.isNotEmpty) {
+        return UserModel.fromDocument(snapshot.docs.first);
+      }
+    } catch (_) {
+      // Ignore, la fiche reste exportable sans coordinateur.
+    }
+    return null;
+  }
+
+  Future<void> _exportStudentDossier(
+    RequestModel request,
+    UserModel student,
+  ) async {
+    try {
+      final coordinator = await _fetchCoordinatorForRegion(request.region);
+      final receptions = await _fundReceptionRepository.fetchForRequest(
+        request.id,
+      );
+      final justifications = await _justificationRepository.fetchForRequest(
+        request.id,
+      );
+      final bytes = await StudentAidSummaryService.instance.buildStudentDossierPdf(
+        student: student,
+        request: request,
+        receptions: receptions,
+        justifications: justifications,
+        coordinator: coordinator,
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => bytes,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Fiche dossier generee pour ${student.fullName}'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur export fiche: $e')));
+    }
   }
 
   Future<void> _approveRequestAsAdmin(
@@ -265,6 +330,18 @@ class _DashboardAdminScreenState extends State<DashboardAdminScreen> {
                             icon: const Icon(Icons.picture_as_pdf),
                             label: const Text('Voir PDF'),
                           ),
+                        if (userSnapshot.hasData &&
+                            userSnapshot.data != null) ...[
+                          const SizedBox(height: 8),
+                          ElevatedButton.icon(
+                            onPressed: () => _exportStudentDossier(
+                              request,
+                              userSnapshot.data!,
+                            ),
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('Telecharger fiche etudiant'),
+                          ),
+                        ],
                         if (request.isApprouveConseil ||
                             request.justificationUrl != null) ...[
                           const SizedBox(height: 8),
@@ -282,7 +359,7 @@ class _DashboardAdminScreenState extends State<DashboardAdminScreen> {
                               );
                             },
                             icon: const Icon(Icons.receipt_long),
-                            label: const Text('Justificatifs de depenses'),
+                            label: const Text('Suivi de l\'aide'),
                           ),
                         ],
                         const SizedBox(height: 16),

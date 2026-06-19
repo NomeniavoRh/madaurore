@@ -4,12 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:madaurore/core/utils/region_utils.dart';
-import 'package:madaurore/data/models/justification_model.dart';
+import 'package:madaurore/data/models/fund_reception_model.dart';
 import 'package:madaurore/data/models/request_model.dart';
 import 'package:madaurore/data/models/user_model.dart';
 
-class JustificationRepository {
-  JustificationRepository({
+class FundReceptionRepository {
+  FundReceptionRepository({
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
   }) : _firestore = firestore ?? FirebaseFirestore.instance,
@@ -22,11 +22,11 @@ class JustificationRepository {
 
   Query<Map<String, dynamic>> _baseQueryForRequest(String requestId) {
     return _firestore
-        .collection('justifications')
+        .collection('fund_receptions')
         .where('requestId', isEqualTo: requestId);
   }
 
-  Stream<List<JustificationModel>> watchForRequest({
+  Stream<List<FundReceptionModel>> watchForRequest({
     required String requestId,
     required UserModel currentUser,
     required String requestRegion,
@@ -43,75 +43,58 @@ class JustificationRepository {
     }
 
     return query.snapshots(includeMetadataChanges: true).map((snapshot) {
-      final justifications = snapshot.docs
-          .map((doc) => JustificationModel.fromDocument(doc))
+      final receptions = snapshot.docs
+          .map((doc) => FundReceptionModel.fromDocument(doc))
           .toList();
-      justifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return justifications;
+      receptions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return receptions;
     });
   }
 
-  Future<List<JustificationModel>> fetchForRequest(String requestId) async {
+  Future<List<FundReceptionModel>> fetchForRequest(String requestId) async {
     final snapshot = await _baseQueryForRequest(requestId).get();
-    final justifications = snapshot.docs
-        .map((doc) => JustificationModel.fromDocument(doc))
+    final receptions = snapshot.docs
+        .map((doc) => FundReceptionModel.fromDocument(doc))
         .toList();
-    justifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return justifications;
+    receptions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return receptions;
   }
 
-  Future<void> addExpenseJustification({
+  Future<void> addReceptionProof({
     required RequestModel request,
     required UserModel student,
     required PlatformFile file,
     required double amount,
-    required String category,
-    required DateTime expenseDate,
+    required DateTime receivedDate,
     String? note,
   }) async {
     if (!student.isStudent || request.userId != student.uid) {
-      throw Exception('Seul l\'etudiant concerne peut envoyer un justificatif');
+      throw Exception(
+        'Seul l\'etudiant concerne peut confirmer la reception de l\'aide',
+      );
     }
     if (!request.isApprouveConseil) {
       throw Exception(
-        'Les justificatifs peuvent etre envoyes apres validation du Conseil',
+        'La reception de l\'aide peut etre confirmee apres validation du Conseil',
       );
     }
     if (amount <= 0) {
-      throw Exception('Montant invalide');
+      throw Exception('Montant recu invalide');
     }
 
-    final approvedReceptions = await _firestore
-        .collection('fund_receptions')
-        .where('requestId', isEqualTo: request.id)
-        .where('status', isEqualTo: 'approved')
-        .get();
-    final approvedReceivedTotal = approvedReceptions.docs.fold<double>(
-      0,
-      (sum, doc) {
-        final value = doc.data()['amount'];
-        if (value is num) return sum + value.toDouble();
-        if (value is String) {
-          return sum + (double.tryParse(value.replaceAll(',', '.')) ?? 0);
-        }
-        return sum;
-      },
-    );
-
-    if (approvedReceivedTotal <= 0) {
-      throw Exception(
-        'Veuillez d\'abord confirmer la reception d\'une premiere tranche',
-      );
+    final grantedAmount = request.montantAccorde ?? request.montant ?? 0;
+    if (grantedAmount <= 0) {
+      throw Exception('Aucun montant accorde pour cette demande');
     }
 
-    final existingJustifications = await fetchForRequest(request.id);
-    final declaredExpenseTotal = existingJustifications
+    final existingReceptions = await fetchForRequest(request.id);
+    final declaredReceived = existingReceptions
         .where((item) => !item.isRejected && !item.needsCorrection)
         .fold<double>(0, (sum, item) => sum + item.amount);
 
-    if (declaredExpenseTotal + amount > approvedReceivedTotal + 0.001) {
+    if (declaredReceived + amount > grantedAmount + 0.001) {
       throw Exception(
-        'Le total des depenses declarees depasse le montant deja recu',
+        'Le total recu depasse le montant accorde pour cette demande',
       );
     }
 
@@ -120,11 +103,11 @@ class JustificationRepository {
       throw Exception('Fichier trop volumineux, maximum 10 Mo');
     }
 
-    final docRef = _firestore.collection('justifications').doc();
+    final docRef = _firestore.collection('fund_receptions').doc();
     final safeFileName = _safeFileName(file.name);
     final contentType = _contentTypeFor(safeFileName);
     final storageRef = _storage.ref().child(
-      'justifications/${student.uid}/${request.id}/${docRef.id}_$safeFileName',
+      'fund_receptions/${student.uid}/${request.id}/${docRef.id}_$safeFileName',
     );
 
     final upload = await storageRef.putData(
@@ -140,17 +123,14 @@ class JustificationRepository {
     );
     final fileUrl = await upload.ref.getDownloadURL();
     final timestamp = FieldValue.serverTimestamp();
-    final normalizedRegion = RegionUtils.normalize(request.region);
     final cleanNote = note?.trim();
 
-    final batch = _firestore.batch();
-    batch.set(docRef, {
+    await docRef.set({
       'requestId': request.id,
       'userId': student.uid,
-      'region': normalizedRegion,
+      'region': RegionUtils.normalize(request.region),
       'amount': amount,
-      'category': category,
-      'expenseDate': Timestamp.fromDate(expenseDate),
+      'receivedDate': Timestamp.fromDate(receivedDate),
       'note': cleanNote == null || cleanNote.isEmpty ? null : cleanNote,
       'fileUrl': fileUrl,
       'fileName': file.name,
@@ -161,20 +141,15 @@ class JustificationRepository {
       'uploadAt': timestamp,
       'updatedAt': timestamp,
     });
-    batch.update(_firestore.collection('requests').doc(request.id), {
-      'justificationUrl': fileUrl,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    await batch.commit();
   }
 
-  Future<void> reviewJustification({
-    required String justificationId,
+  Future<void> reviewReception({
+    required String receptionId,
     required String status,
     required UserModel reviewer,
     String? rejectionReason,
   }) async {
-    final normalizedStatus = JustificationModel.normalizeStatus(status);
+    final normalizedStatus = FundReceptionModel.normalizeStatus(status);
     if (!const {
       'approved',
       'rejected',
@@ -183,7 +158,7 @@ class JustificationRepository {
       throw Exception('Statut de validation invalide');
     }
 
-    await _firestore.collection('justifications').doc(justificationId).update({
+    await _firestore.collection('fund_receptions').doc(receptionId).update({
       'status': normalizedStatus,
       'reviewedBy': reviewer.uid,
       'reviewerName': reviewer.fullName,
@@ -208,7 +183,7 @@ class JustificationRepository {
   }
 
   String _safeFileName(String fileName) {
-    final fallback = fileName.trim().isEmpty ? 'justificatif.pdf' : fileName;
+    final fallback = fileName.trim().isEmpty ? 'reception.pdf' : fileName;
     return fallback.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
   }
 

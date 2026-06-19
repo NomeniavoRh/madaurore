@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -35,13 +34,13 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
       TextEditingController();
   final bool _isLoading = false;
   bool _redirectScheduled = false;
-  StreamSubscription<QuerySnapshot>?
-  _requestsSubscription; // Gère subscription pour dispose
+  Future<UserModel?>? _userModelFuture;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _userModelFuture ??= _loadUserModel();
       _loadLastUpdateDate();
     });
   }
@@ -221,6 +220,12 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
     ).showSnackBar(const SnackBar(content: Text('Dialog fermé')));
   }
 
+  Future<UserModel?> _loadUserModel() async {
+    final auth = Provider.of<AppAuthProvider>(context, listen: false);
+    await auth.refreshUserModel();
+    return auth.userModel;
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AppAuthProvider>(context);
@@ -234,9 +239,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
 
     // FutureBuilder pour userModel (évite Stream leak constant)
     return FutureBuilder<UserModel?>(
-      future: auth.refreshUserModel().then(
-        (_) => auth.userModel,
-      ), // Fix: Retourne Future<UserModel?>
+      future: _userModelFuture ??= _loadUserModel(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
@@ -426,7 +429,7 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
                     _isLoading
                         ? const CircularProgressIndicator()
                         : CustomButton(
-                            text: '📎 Envoyer justificatif',
+                            text: 'Suivi aide et justificatifs',
                             onPressed: () => _openJustificationUpload(requests),
                           ),
                   ],
@@ -442,7 +445,6 @@ class DashboardStudentScreenState extends State<DashboardStudentScreen> {
   @override
   void dispose() {
     _updateContentController.dispose();
-    _requestsSubscription?.cancel(); // Libère mémoire
     super.dispose();
   }
 }
